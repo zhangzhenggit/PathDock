@@ -1,6 +1,4 @@
 using System;
-using System.Diagnostics;
-using System.Windows.Media.Effects;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -16,13 +14,6 @@ internal sealed partial class EdgeWindow : Window
     readonly Border shell = new();
     Point? dragOrigin;
     bool dragging;
-    readonly Border trail = new() { CornerRadius = new CornerRadius(14), Background = Ui.Brush("#8CB9EA"), Opacity = 0, IsHitTestVisible = false };
-    readonly RotateTransform tilt = new();
-    readonly TranslateTransform trailOffset = new();
-    readonly Stopwatch dragClock = new();
-    Point dragTarget, dragPosition;
-    double lastDragFrame;
-
     public EdgeWindow(Action expand, Action<int, int> dropped)
     {
         Title = "PathDock"; Width = 28; Height = 56;
@@ -34,10 +25,7 @@ internal sealed partial class EdgeWindow : Window
         shell.BorderBrush = Ui.Brush("#BCCCDD"); shell.BorderThickness = new Thickness(1);
         shell.Background = new LinearGradientBrush(Color.FromRgb(247, 250, 253), Color.FromRgb(233, 240, 248), 90);
         shell.ToolTip = "PathDock · 拖动可更换停靠位置";
-        var layers = new Grid(); layers.Children.Add(trail); layers.Children.Add(shell); Content = layers;
-        shell.RenderTransformOrigin = new Point(.5, .5); shell.RenderTransform = tilt;
-        trail.RenderTransform = trailOffset;
-        Closed += (_, _) => StopDragVisual();
+        Content = shell;
         shell.MouseLeftButtonDown += (_, e) =>
         {
             var cursor = System.Windows.Forms.Cursor.Position;
@@ -50,8 +38,8 @@ internal sealed partial class EdgeWindow : Window
             var cursor = System.Windows.Forms.Cursor.Position;
             if (!dragging && Math.Abs(cursor.X - start.X) < SystemParameters.MinimumHorizontalDragDistance * Native.WindowScale(handle)
                 && Math.Abs(cursor.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance * Native.WindowScale(handle)) return;
-            dragTarget = new Point(cursor.X, cursor.Y);
-            if (!dragging) BeginDragVisual(dragTarget);
+            if (!dragging) BeginDragVisual();
+            MoveDragTo(new Point(cursor.X, cursor.Y));
         };
         shell.MouseLeftButtonUp += (_, e) =>
         {
@@ -74,40 +62,19 @@ internal sealed partial class EdgeWindow : Window
         };
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() => { if (!dragging) PositionAtAnchor(); }));
     }
-    void BeginDragVisual(Point cursor)
+    void BeginDragVisual()
     {
-        dragging = true; dragTarget = cursor;
-        var bounds = Native.WindowBounds(handle);
-        dragPosition = new Point((bounds.Left + bounds.Right) / 2d, (bounds.Top + bounds.Bottom) / 2d);
-        shell.Margin = trail.Margin = new Thickness(9);
-        shell.CornerRadius = new CornerRadius(12); shell.BorderThickness = new Thickness(1);
-        shell.Effect = new DropShadowEffect { Color = Color.FromRgb(32, 70, 116), BlurRadius = 9, ShadowDepth = 2, Opacity = .22 };
-        trail.Opacity = .16;
-        dragClock.Restart(); lastDragFrame = 0;
-        CompositionTarget.Rendering -= FollowDrag; CompositionTarget.Rendering += FollowDrag;
+        dragging = true;
+        shell.CornerRadius = new CornerRadius(10); shell.BorderThickness = new Thickness(1);
     }
-    void FollowDrag(object? sender, EventArgs e)
+    void MoveDragTo(Point cursor)
     {
-        if (!dragging) return;
-        var now = dragClock.Elapsed.TotalSeconds;
-        var dt = Math.Clamp(now - lastDragFrame, 0, .05); lastDragFrame = now;
-        var factor = 1 - Math.Exp(-dt / .035);
-        var dx = dragTarget.X - dragPosition.X; var dy = dragTarget.Y - dragPosition.Y;
-        dragPosition = new Point(dragPosition.X + dx * factor, dragPosition.Y + dy * factor);
-        var scale = Native.ScaleAtPoint((int)dragTarget.X, (int)dragTarget.Y);
-        var size = (int)Math.Round(62 * scale);
-        tilt.Angle = Math.Clamp(dx / scale * .12, -5, 5);
-        trailOffset.X = Math.Clamp(-dx / scale * .16, -5, 5);
-        trailOffset.Y = Math.Clamp(-dy / scale * .16, -5, 5);
-        trail.Opacity = Math.Clamp((Math.Abs(dx) + Math.Abs(dy)) / scale / 160, 0, .18);
-        Native.PositionDockWindow(handle, (int)Math.Round(dragPosition.X - size / 2d), (int)Math.Round(dragPosition.Y - size / 2d), size, size);
+        // Move in the mouse event itself: no render loop, interpolation or effects.
+        var scale = Native.ScaleAtPoint((int)cursor.X, (int)cursor.Y);
+        var size = (int)Math.Round(44 * scale);
+        Native.PositionDockWindow(handle, (int)Math.Round(cursor.X - size / 2d), (int)Math.Round(cursor.Y - size / 2d), size, size);
     }
-    void StopDragVisual()
-    {
-        dragging = false; CompositionTarget.Rendering -= FollowDrag; dragClock.Stop();
-        shell.Margin = trail.Margin = new Thickness(0); shell.Effect = null; tilt.Angle = 0;
-        trail.Opacity = 0; trailOffset.X = trailOffset.Y = 0;
-    }
+    void StopDragVisual() => dragging = false;
     public void ShowAt(IntPtr mainWindow, string dockSide)
     {
         anchor = mainWindow; side = dockSide;
