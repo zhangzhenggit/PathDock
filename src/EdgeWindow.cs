@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 
@@ -8,23 +9,50 @@ namespace PathDock;
 
 internal sealed partial class EdgeWindow : Window
 {
-    IntPtr handle;
-    IntPtr anchor;
-    bool leftSide;
+    IntPtr handle, anchor;
+    string side = "right";
     readonly Border shell = new();
-    public EdgeWindow(Action expand)
+    Point? dragOrigin;
+    bool dragging;
+    public EdgeWindow(Action expand, Action<int, int> dropped)
     {
         Title = "PathDock"; Width = 28; Height = 56;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
-        Background = Ui.Brush("#F1F5FA"); Icon = AppIcon.Image;
-        Ui.CrispText(this);
-        var button = Ui.Button(new Image { Source = AppIcon.Image, Width = 16, Height = 16 });
-        button.Background = Brushes.Transparent; button.Padding = new Thickness(0); button.ToolTip = "PathDock";
-        button.Click += (_, _) => expand();
-        shell.Child = button; shell.BorderBrush = Ui.Brush("#D8E0EA"); shell.BorderThickness = new Thickness(1);
+        AllowsTransparency = true; Background = Brushes.Transparent; Icon = AppIcon.Image;
+        UseLayoutRounding = true;
+        shell.Child = new Image { Source = AppIcon.Vector, Width = 20, Height = 20, IsHitTestVisible = false };
+        shell.BorderBrush = Ui.Brush("#BCCCDD"); shell.BorderThickness = new Thickness(1);
         shell.Background = new LinearGradientBrush(Color.FromRgb(247, 250, 253), Color.FromRgb(233, 240, 248), 90);
-        shell.CornerRadius = new CornerRadius(10, 0, 0, 10); Content = shell;
+        shell.ToolTip = "PathDock · 拖动可更换停靠位置"; Content = shell;
+        shell.MouseLeftButtonDown += (_, e) =>
+        {
+            var cursor = System.Windows.Forms.Cursor.Position;
+            dragOrigin = new Point(cursor.X, cursor.Y); dragging = false;
+            shell.CaptureMouse(); e.Handled = true;
+        };
+        shell.MouseMove += (_, e) =>
+        {
+            if (dragOrigin is not Point start || e.LeftButton != MouseButtonState.Pressed) return;
+            var cursor = System.Windows.Forms.Cursor.Position;
+            if (!dragging && Math.Abs(cursor.X - start.X) < SystemParameters.MinimumHorizontalDragDistance * Native.WindowScale(handle)
+                && Math.Abs(cursor.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance * Native.WindowScale(handle)) return;
+            dragging = true;
+            var scale = Native.ScaleAtPoint(cursor.X, cursor.Y);
+            var horizontal = side is "top" or "bottom";
+            var width = (int)Math.Round((horizontal ? 56 : 28) * scale);
+            var height = (int)Math.Round((horizontal ? 28 : 56) * scale);
+            Native.PositionDockWindow(handle, cursor.X - width / 2, cursor.Y - height / 2, width, height);
+        };
+        shell.MouseLeftButtonUp += (_, e) =>
+        {
+            if (dragOrigin == null) return;
+            var wasDragging = dragging; dragOrigin = null; dragging = false; shell.ReleaseMouseCapture();
+            if (wasDragging) { var cursor = System.Windows.Forms.Cursor.Position; dropped(cursor.X, cursor.Y); }
+            else expand();
+            e.Handled = true;
+        };
+        shell.LostMouseCapture += (_, _) => { if (dragOrigin != null) { dragOrigin = null; dragging = false; PositionAtAnchor(); } };
         SourceInitialized += (_, _) =>
         {
             handle = new WindowInteropHelper(this).Handle;
@@ -35,25 +63,25 @@ internal sealed partial class EdgeWindow : Window
                 return IntPtr.Zero;
             });
         };
-        DpiChanged += (_, _) => Dispatcher.BeginInvoke(new Action(PositionAtAnchor));
+        DpiChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() => { if (!dragging) PositionAtAnchor(); }));
     }
-    public void ShowAt(IntPtr mainWindow, bool dockLeft)
+    public void ShowAt(IntPtr mainWindow, string dockSide)
     {
-        anchor = mainWindow; leftSide = dockLeft;
+        anchor = mainWindow; side = dockSide;
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
-        PositionAtAnchor();
-        if (!IsVisible) Show();
-        PositionAtAnchor();
+        PositionAtAnchor(); if (!IsVisible) Show(); PositionAtAnchor();
     }
     void PositionAtAnchor()
     {
         if (anchor == IntPtr.Zero || handle == IntPtr.Zero || !Native.IsWindow(anchor)) return;
         var bounds = Native.WindowBounds(anchor); var scale = Native.WindowScale(anchor);
-        var width = (int)Math.Round(28 * scale); var height = (int)Math.Round(56 * scale);
-        Native.PositionDockWindow(handle, leftSide ? bounds.Left : bounds.Right - width,
-            bounds.Top + (bounds.Bottom - bounds.Top - height) / 2, width, height);
-        shell.CornerRadius = leftSide ? new CornerRadius(0, 10, 10, 0) : new CornerRadius(10, 0, 0, 10);
-        shell.BorderThickness = leftSide ? new Thickness(0, 1, 1, 1) : new Thickness(1, 1, 0, 1);
-        Native.RoundEdgeWindow(handle, width, height, (int)Math.Round(10 * scale), leftSide);
+        var horizontal = side is "top" or "bottom";
+        var width = (int)Math.Round((horizontal ? 56 : 28) * scale);
+        var height = (int)Math.Round((horizontal ? 28 : 56) * scale);
+        var x = horizontal ? bounds.Left + (bounds.Right - bounds.Left - width) / 2 : side == "left" ? bounds.Left : bounds.Right - width;
+        var y = horizontal ? side == "top" ? bounds.Top : bounds.Bottom - height : bounds.Top + (bounds.Bottom - bounds.Top - height) / 2;
+        shell.CornerRadius = side switch { "left" => new(0, 10, 10, 0), "top" => new(0, 0, 10, 10), "bottom" => new(10, 10, 0, 0), _ => new(10, 0, 0, 10) };
+        shell.BorderThickness = side switch { "left" => new(0, 1, 1, 1), "top" => new(1, 0, 1, 1), "bottom" => new(1, 1, 1, 0), _ => new(1, 1, 0, 1) };
+        Native.PositionDockWindow(handle, x, y, width, height);
     }
 }

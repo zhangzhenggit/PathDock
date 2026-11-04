@@ -9,7 +9,9 @@ internal sealed partial class EdgeWindow
         get
         {
             var host = Native.WindowBounds(anchor); var edge = Native.WindowBounds(handle);
-            return Math.Abs((leftSide ? edge.Left - host.Left : edge.Right - host.Right)) <= 1
+            if (side is "top" or "bottom") return Math.Abs((side == "top" ? edge.Top - host.Top : edge.Bottom - host.Bottom)) <= 1
+                && Math.Abs((edge.Left + edge.Right) - (host.Left + host.Right)) <= 2;
+            return Math.Abs((side == "left" ? edge.Left - host.Left : edge.Right - host.Right)) <= 1
                 && Math.Abs((edge.Top + edge.Bottom) - (host.Top + host.Bottom)) <= 2;
         }
     }

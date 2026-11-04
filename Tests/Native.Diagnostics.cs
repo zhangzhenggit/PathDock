@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 namespace PathDock;
 internal static partial class Native
 {
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
     [DllImport("user32.dll")] static extern int GetWindowRgn(IntPtr window, IntPtr region);
     [DllImport("gdi32.dll")] static extern int GetRgnBox(IntPtr region, out RECT rectangle);

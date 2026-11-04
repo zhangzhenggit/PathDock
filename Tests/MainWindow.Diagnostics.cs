@@ -35,24 +35,39 @@ public sealed partial class MainWindow
             completions++;
         }
         var originalSide = store.State.Side;
+        var originalHorizontal = store.State.HorizontalRatio; var originalVertical = store.State.VerticalRatio;
         var originalX = store.State.ScreenX; var originalY = store.State.ScreenY;
         var screens = System.Windows.Forms.Screen.AllScreens;
         foreach (var screen in screens)
-        foreach (var side in new[] { "right", "left" })
+        foreach (var side in new[] { "right", "left", "top", "bottom" })
         {
             store.State.ScreenX = screen.Bounds.Left + screen.Bounds.Width / 2;
             store.State.ScreenY = screen.Bounds.Top + screen.Bounds.Height / 2;
-            store.State.Side = side; Place();
+            var area = screen.WorkingArea;
+            var dropX = side == "left" ? area.Left + 1 : side == "right" ? area.Right - 1 : area.Left + area.Width / 2;
+            var dropY = side == "top" ? area.Top + 1 : side == "bottom" ? area.Bottom - 1 : area.Top + area.Height / 2;
+            DockAt(dropX, dropY);
+            monitorPlacementCorrect &= store.State.Side == side;
+            var restored = new DockStore(store.Root, false);
+            monitorPlacementCorrect &= restored.State.Side == side && restored.State.ScreenX == store.State.ScreenX && restored.State.ScreenY == store.State.ScreenY;
             await Task.Delay(100);
             var positioned = Native.WindowBounds(handle);
-            monitorPlacementCorrect &= Math.Abs((side == "left" ? positioned.Left - screen.WorkingArea.Left : positioned.Right - screen.WorkingArea.Right)) <= 2;
+            monitorPlacementCorrect &= Math.Abs(side switch { "left" => positioned.Left - screen.WorkingArea.Left, "top" => positioned.Top - screen.WorkingArea.Top, "bottom" => positioned.Bottom - screen.WorkingArea.Bottom, _ => positioned.Right - screen.WorkingArea.Right }) <= 2;
             for (var i = 0; i < 3; i++)
             {
                 Collapse(); await Settle(); stable &= collapsed && reveal == 0;
                 await Task.Delay(60);
                 independentEdgeVisible &= !IsVisible && edgeWindow?.IsPresent == true && edgeWindow.IsAtAnchor;
+                if (i == 0 && edgeWindow != null)
+                {
+                    var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(edgeWindow.ActualWidth * 2), (int)Math.Ceiling(edgeWindow.ActualHeight * 2), 192, 192, PixelFormats.Pbgra32);
+                    bitmap.Render(edgeWindow);
+                    var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                    var directory = System.IO.Path.Combine(Environment.CurrentDirectory, "artifacts", "test-results"); System.IO.Directory.CreateDirectory(directory);
+                    using var file = System.IO.File.Create(System.IO.Path.Combine(directory, "edge-" + side + ".png")); encoder.Save(file);
+                }
                 var region = Native.DockRegionState(handle); var dpi = VisualTreeHelper.GetDpi(this);
-                collapsedRegionsCorrect &= Math.Abs(region.Width - 28 * dpi.DpiScaleX) <= 2 && Math.Abs(region.Height - 56 * dpi.DpiScaleY) <= 2;
+                collapsedRegionsCorrect &= Math.Abs(region.Width - (side is "top" or "bottom" ? 56 : 28) * dpi.DpiScaleX) <= 2 && Math.Abs(region.Height - (side is "top" or "bottom" ? 28 : 56) * dpi.DpiScaleY) <= 2;
                 nativeFramesDisabled &= region.NativeFrameDisabled; collapsedSamples++;
                 Expand(); await Settle(); stable &= !collapsed && reveal == 1;
             }
@@ -70,7 +85,7 @@ public sealed partial class MainWindow
         var menuCollapseWorks = menuWasTracked && collapsed && !menu.IsOpen && menuDepth == 0;
         var menuState = new { WasTracked = menuWasTracked, Collapsed = collapsed, Open = menu.IsOpen, Depth = menuDepth, Dialog = dialogOpen, Animating = animating, Reveal = reveal };
         Expand(); await Settle();
-        store.State.Side = originalSide; store.State.ScreenX = originalX; store.State.ScreenY = originalY; Place();
+        store.State.HorizontalRatio = originalHorizontal; store.State.VerticalRatio = originalVertical; store.State.Side = originalSide; store.State.ScreenX = originalX; store.State.ScreenY = originalY; Place();
         return new { Passed = stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
     }
 }

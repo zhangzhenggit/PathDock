@@ -28,6 +28,7 @@ public sealed class DockState
     public string ActionMode { get; set; } = "auto";
     public double ScreenX { get; set; }
     public double ScreenY { get; set; }
+    public double HorizontalRatio { get; set; } = .5;
     public double VerticalRatio { get; set; } = .42;
     public List<string> HiddenRecent { get; set; } = new();
 }
@@ -54,8 +55,9 @@ public sealed class DockStore
                     if (string.IsNullOrWhiteSpace(entry.Name)) entry.Name = DefaultName(entry.Path);
                 }
                 if (State.ActionMode is not ("auto" or "insert" or "terminal" or "explorer")) State.ActionMode = "auto";
-                if (State.Side is not ("left" or "right")) State.Side = "right";
+                if (State.Side is not ("left" or "right" or "top" or "bottom")) State.Side = "right";
                 if (!double.IsFinite(State.ScreenX) || !double.IsFinite(State.ScreenY) || Math.Abs(State.ScreenX) > 1000000 || Math.Abs(State.ScreenY) > 1000000) { State.ScreenX = 0; State.ScreenY = 0; }
+                State.HorizontalRatio = double.IsFinite(State.HorizontalRatio) ? Math.Clamp(State.HorizontalRatio, 0, 1) : .5;
                 State.VerticalRatio = double.IsFinite(State.VerticalRatio) ? Math.Clamp(State.VerticalRatio, 0, 1) : .42;
                 State.Folders = State.Folders.GroupBy(f => f.Path, StringComparer.OrdinalIgnoreCase).Select(group => group.OrderByDescending(f => f.Pinned).ThenByDescending(f => f.LastUsed).First()).ToList();
             }

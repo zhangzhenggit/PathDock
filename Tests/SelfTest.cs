@@ -17,6 +17,21 @@ internal static class SelfTest
         try
         {
             Directory.CreateDirectory(root);
+            Test("Nearest edge supports offset and negative monitor coordinates", () => {
+                foreach (var area in new[] { new System.Drawing.Rectangle(0, 0, 3840, 2100), new System.Drawing.Rectangle(-2560, -200, 2560, 1400), new System.Drawing.Rectangle(3840, 104, 3072, 1850) }) {
+                    Require(MainWindow.NearestSide(area, area.Left + 2, area.Top + area.Height / 2) == "left");
+                    Require(MainWindow.NearestSide(area, area.Right - 2, area.Top + area.Height / 2) == "right");
+                    Require(MainWindow.NearestSide(area, area.Left + area.Width / 2, area.Top + 2) == "top");
+                    Require(MainWindow.NearestSide(area, area.Left + area.Width / 2, area.Bottom - 2) == "bottom");
+                }
+            });
+            Test("Four sides and horizontal position survive reload", () => {
+                foreach (var side in new[] { "left", "right", "top", "bottom" }) {
+                    var path = Path.Combine(root, "dock-" + side); var store = new DockStore(path, false);
+                    store.State.Side = side; store.State.HorizontalRatio = .73; store.Save();
+                    var restored = new DockStore(path, false); Require(restored.State.Side == side && restored.State.HorizontalRatio == .73);
+                }
+            });
             Test("Root drive is preserved", () => Require(DockStore.Normalize("C:\\") == "C:\\"));
             Test("Relative and newline paths rejected", () => { foreach (var path in new[] { "..\\abc", "folder", "C:\\abc\nother" }) { var rejected = false; try { DockStore.Normalize(path); } catch (ArgumentException) { rejected = true; } Require(rejected); } });
             Test("Bookmark persistence with Unicode and punctuation", () => {

@@ -75,21 +75,6 @@ internal static partial class Native
         var square = 1; DwmSetWindowAttribute(window, 33, ref square, sizeof(int));
     }
 
-    [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
-
-
-    [DllImport("gdi32.dll")] static extern int CombineRgn(IntPtr destination, IntPtr first, IntPtr second, int mode);
-    public static void RoundEdgeWindow(IntPtr window, int width, int height, int radius, bool leftSide)
-    {
-        var round = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
-        var flush = leftSide ? CreateRectRgn(0, 0, width / 2, height + 1) : CreateRectRgn(width / 2, 0, width + 1, height + 1);
-        try
-        {
-            CombineRgn(round, round, flush, 2);
-            if (SetWindowRgn(window, round, true) == 0) DeleteObject(round);
-        }
-        finally { DeleteObject(flush); }
-    }
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
     [DllImport("gdi32.dll")] static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);

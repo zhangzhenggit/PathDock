@@ -27,7 +27,7 @@ public sealed partial class MainWindow : Window
     readonly Stopwatch slideClock = new();
     Button? edgeButton;
     EdgeWindow? edgeWindow;
-    bool animating;
+    bool animating, draggingPanel;
     double reveal = 1, transitionFrom = 1, transitionTo = 1;
     int motionFrames;
     readonly StackPanel fixedList = new(), recentList = new();
@@ -121,7 +121,7 @@ public sealed partial class MainWindow : Window
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(7, 0, 0, 0) };
         brand.Children.Add(new Image { Source = AppIcon.Image, Width = 16, Height = 16, Margin = new Thickness(5, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
         brand.Children.Add(Ui.Text("PathDock", Ui.ExplorerFontSize));
-        brand.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1) return; try { DragMove(); Snap(); } catch { } e.Handled = true; };
+        brand.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; Snap(); } e.Handled = true; };
         header.Children.Add(brand);
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
         var add = Ui.IconButton("\uE710", "添加文件夹"); add.Click += (_, _) => AddFolder(); tools.Children.Add(add);
@@ -433,8 +433,8 @@ public sealed partial class MainWindow : Window
         dialog.Body.Children.Add(startup);
         Toggle("记录最近目录", store.State.RecordRecent, v => store.State.RecordRecent = v);
         Toggle("从资源管理器发现目录", store.State.TrackExplorer, v => store.State.TrackExplorer = v);
-        var side = new ComboBox { ItemsSource = new[] { "右侧停靠", "左侧停靠" }, SelectedIndex = store.State.Side == "left" ? 1 : 0, Margin = new Thickness(0, 8, 0, 12), Padding = new Thickness(5) };
-        side.SelectionChanged += (_, _) => { store.State.Side = side.SelectedIndex == 1 ? "left" : "right"; store.Save(); Place(); }; dialog.Body.Children.Add(side);
+        var side = new ComboBox { ItemsSource = new[] { "右侧停靠", "左侧停靠", "顶部停靠", "底部停靠" }, SelectedIndex = Array.IndexOf(new[] { "right", "left", "top", "bottom" }, store.State.Side), Margin = new Thickness(0, 8, 0, 12), Padding = new Thickness(5) };
+        side.SelectionChanged += (_, _) => { store.State.Side = new[] { "right", "left", "top", "bottom" }[Math.Max(0, side.SelectedIndex)]; store.Save(); Place(); }; dialog.Body.Children.Add(side);
         var installed = File.Exists(Path.Combine(store.Root, "integration.json"));
         var integrationBody = new StackPanel { Margin = new Thickness(10, 6, 10, 10) };
         var integration = new CheckBox { Content = "允许在当前终端切换目录", IsChecked = installed, FontSize = Ui.ExplorerFontSize, Margin = new Thickness(0, 0, 0, 8), IsEnabled = !preview };
@@ -513,23 +513,26 @@ public sealed partial class MainWindow : Window
     void ShowEdgeWindow()
     {
         if (exiting || animating || !collapsed) return;
-        edgeWindow ??= new EdgeWindow(Expand);
-        edgeWindow.ShowAt(handle, store.State.Side == "left");
+        edgeWindow ??= new EdgeWindow(Expand, DockAt);
+        edgeWindow.ShowAt(handle, store.State.Side);
         Hide();
     }
     void UpdateDockRegion()
     {
         if (handle == IntPtr.Zero || ActualWidth <= 0 || ActualHeight <= 0) return;
         var dpi = VisualTreeHelper.GetDpi(this);
-        var visibleWidth = 28 + (ActualWidth - 28) * reveal;
-        var visibleHeight = 56 + (ActualHeight - 56) * reveal;
-        var leftSide = store.State.Side == "left";
-        var x = leftSide ? 0 : ActualWidth - visibleWidth;
-        var y = (ActualHeight - visibleHeight) / 2;
-        panelSlide.X = Math.Round((leftSide ? -1 : 1) * (ActualWidth - visibleWidth) * dpi.DpiScaleX) / dpi.DpiScaleX;
+        var horizontal = store.State.Side is "top" or "bottom";
+        var visibleWidth = (horizontal ? 56 : 28) + (ActualWidth - (horizontal ? 56 : 28)) * reveal;
+        var visibleHeight = (horizontal ? 28 : 56) + (ActualHeight - (horizontal ? 28 : 56)) * reveal;
+        var x = horizontal ? (ActualWidth - visibleWidth) / 2 : store.State.Side == "left" ? 0 : ActualWidth - visibleWidth;
+        var y = horizontal ? store.State.Side == "top" ? 0 : ActualHeight - visibleHeight : (ActualHeight - visibleHeight) / 2;
+        panelSlide.X = horizontal ? 0 : Math.Round((store.State.Side == "left" ? -1 : 1) * (ActualWidth - visibleWidth) * dpi.DpiScaleX) / dpi.DpiScaleX;
+        panelSlide.Y = horizontal ? Math.Round((store.State.Side == "top" ? -1 : 1) * (ActualHeight - visibleHeight) * dpi.DpiScaleY) / dpi.DpiScaleY : 0;
         if (edgeButton != null)
         {
-            edgeButton.HorizontalAlignment = leftSide ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+            edgeButton.Width = horizontal ? 56 : 28; edgeButton.Height = horizontal ? 28 : 56;
+            edgeButton.HorizontalAlignment = horizontal ? HorizontalAlignment.Center : store.State.Side == "left" ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+            edgeButton.VerticalAlignment = horizontal ? store.State.Side == "top" ? VerticalAlignment.Top : VerticalAlignment.Bottom : VerticalAlignment.Center;
             edgeButton.Opacity = Math.Clamp((.22 - reveal) / .22, 0, 1);
         }
         Native.SetVisibleRegion(handle, (int)Math.Round(x * dpi.DpiScaleX), (int)Math.Round(y * dpi.DpiScaleY),
@@ -538,7 +541,7 @@ public sealed partial class MainWindow : Window
     }
     void Place()
     {
-        if (animating) return;
+        if (animating || draggingPanel) return;
         var point = new System.Drawing.Point((int)store.State.ScreenX, (int)store.State.ScreenY);
         var screen = Forms.Screen.FromPoint(point); var area = screen.WorkingArea;
         var scale = Native.ScaleAtPoint(point.X, point.Y);
@@ -546,19 +549,34 @@ public sealed partial class MainWindow : Window
         // Keep the logical design size independent of those transient values.
         var width = (int)Math.Round(PanelWidth * scale);
         var height = Math.Min((int)Math.Round(desiredHeight * scale), Math.Max(100, area.Height - (int)Math.Round(16 * scale)));
-        var x = store.State.Side == "left" ? area.Left : area.Right - width;
+        var horizontal = store.State.Side is "top" or "bottom";
+        var x = horizontal ? area.Left + (int)Math.Round(Math.Max(0, area.Width - width) * store.State.HorizontalRatio) : store.State.Side == "left" ? area.Left : area.Right - width;
         var y = area.Top + (int)Math.Round(Math.Max(0, area.Height - height) * Math.Clamp(store.State.VerticalRatio, 0, 1));
+        if (horizontal) y = store.State.Side == "top" ? area.Top : area.Bottom - height;
         Native.PositionDockWindow(handle, x, y, width, height);
         UpdateDockRegion();
         if (collapsed && !animating && IsLoaded) ShowEdgeWindow();
     }
     void Snap()
     {
-        var screen = Forms.Screen.FromHandle(handle); var center = screen.Bounds; store.State.ScreenX = center.Left + center.Width / 2; store.State.ScreenY = center.Top + center.Height / 2;
-        var bounds = Native.WindowBounds(handle);
-        store.State.Side = (bounds.Left + bounds.Right) / 2 < center.Left + center.Width / 2 ? "left" : "right";
-        var available = screen.WorkingArea.Height - (bounds.Bottom - bounds.Top);
-        store.State.VerticalRatio = available <= 0 ? .5 : Math.Clamp((bounds.Top - screen.WorkingArea.Top) / available, 0, 1); store.Save(); Place();
+        var cursor = Forms.Cursor.Position; DockAt(cursor.X, cursor.Y);
+    }
+    void DockAt(int x, int y)
+    {
+        var screen = Forms.Screen.FromPoint(new System.Drawing.Point(x, y)); var area = screen.WorkingArea;
+        store.State.ScreenX = screen.Bounds.Left + screen.Bounds.Width / 2;
+        store.State.ScreenY = screen.Bounds.Top + screen.Bounds.Height / 2;
+        store.State.Side = NearestSide(area, x, y);
+        var scale = Native.ScaleAtPoint(x, y);
+        var width = PanelWidth * scale; var height = Math.Min(desiredHeight * scale, area.Height - 16 * scale);
+        store.State.HorizontalRatio = Math.Clamp((x - area.Left - width / 2) / Math.Max(1, area.Width - width), 0, 1);
+        store.State.VerticalRatio = Math.Clamp((y - area.Top - height / 2) / Math.Max(1, area.Height - height), 0, 1);
+        store.Save(); Place();
+    }
+    internal static string NearestSide(System.Drawing.Rectangle area, int x, int y)
+    {
+        var distances = new[] { Math.Abs(x - area.Left), Math.Abs(x - area.Right), Math.Abs(y - area.Top), Math.Abs(y - area.Bottom) };
+        return new[] { "left", "right", "top", "bottom" }[Array.IndexOf(distances, distances.Min())];
     }
     void CreateTray()
     {
