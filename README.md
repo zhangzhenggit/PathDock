@@ -36,8 +36,10 @@ Windows 目录快捷工具。固定常用目录、发现最近目录，并根据
 需要 .NET 8 SDK、Windows 桌面目标组件及 PowerShell 7。没有第三方 NuGet 依赖。
 
     .\build.ps1
-    .\build.ps1 -SelfContained -Package
-    .\build.ps1 -SelfContained -Package -Run
+    .\build.ps1 -Package
+    .\build.ps1 -Package -Run
+
+默认生成精简版，需要目标电脑安装 .NET 8 Desktop Runtime（与包架构一致）。如需携带运行环境、无需预装，显式添加 -SelfContained，包体会明显增大。
 
 默认构建输出到 artifacts/publish；加入 -Package 生成 releases 下的 ZIP 和 SHA-256；加入 -Run 备份并更新 dist，然后重启。更新失败会尝试回退到旧文件。ARM64 可指定 -Runtime win-arm64。
 

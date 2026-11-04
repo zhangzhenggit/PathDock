@@ -72,6 +72,13 @@ try {
       Copy-ReleaseFiles $output $dist
       $oldSymbols=Join-Path $dist 'PathDock.pdb'
       if(Test-Path -LiteralPath $oldSymbols){Remove-Item -LiteralPath $oldSymbols -Force}
+      # Remove files from an older publish flavor (e.g. bundled runtime DLLs).
+      foreach($installedFile in Get-ChildItem -LiteralPath $dist -File -Recurse){
+        $relative=[IO.Path]::GetRelativePath($dist,$installedFile.FullName)
+        if(-not (Test-Path -LiteralPath (Join-Path $output $relative) -PathType Leaf)){
+          Remove-Item -LiteralPath $installedFile.FullName
+        }
+      }
       $process=Start-Process -FilePath $exe -ArgumentList '--startup' -WorkingDirectory $projectRoot -WindowStyle Normal -PassThru
       if($process.WaitForExit(1500)){throw "PathDock exited during startup ($($process.ExitCode))."}
       Write-Output "Running: $exe (PID $($process.Id))"

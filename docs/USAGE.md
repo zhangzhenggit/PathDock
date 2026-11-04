@@ -2,6 +2,8 @@
 
 Windows 目录快捷工具。解压到固定位置，双击 `PathDock.exe` 启动。
 
+精简包（framework-dependent）需要 .NET 8 Desktop Runtime，架构须与发布包一致。自带运行环境包（portable）无需预装。
+
 - 点击屏幕边缘的蓝色按钮展开；鼠标离开后自动收起。
 - `Ctrl + Alt + 空格` 展开或收起。顶部图钉可保持展开。
 - 固定区显示名称，悬停查看完整路径；最近区显示完整路径。
