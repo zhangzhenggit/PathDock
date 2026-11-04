@@ -48,6 +48,12 @@ try {
     Compress-Archive -Path (Join-Path $output '*') -DestinationPath $zip -Force
     $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText($zip+'.sha256',"$hash  $([IO.Path]::GetFileName($zip))"+[Environment]::NewLine)
+    # Remove older PathDock packages only after the new archive and checksum exist.
+    foreach($oldPackage in Get-ChildItem -LiteralPath $release -File){
+      if($oldPackage.Name -match '^PathDock-.+\.zip(\.sha256)?$' -and $oldPackage.FullName -ne $zip -and $oldPackage.FullName -ne ($zip+'.sha256')){
+        Remove-Item -LiteralPath $oldPackage.FullName -Force
+      }
+    }
     Write-Output "Package: $zip"
   }
   if($Run){
