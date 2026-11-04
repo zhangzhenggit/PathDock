@@ -121,7 +121,7 @@ public sealed partial class MainWindow : Window
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(7, 0, 0, 0) };
         brand.Children.Add(new Image { Source = AppIcon.Image, Width = 16, Height = 16, Margin = new Thickness(5, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
         brand.Children.Add(Ui.Text("PathDock", Ui.ExplorerFontSize));
-        brand.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; Snap(); } e.Handled = true; };
+        brand.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; SavePanelPosition(); } e.Handled = true; };
         header.Children.Add(brand);
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
         var add = Ui.IconButton("\uE710", "添加文件夹"); add.Click += (_, _) => AddFolder(); tools.Children.Add(add);
@@ -432,7 +432,7 @@ public sealed partial class MainWindow : Window
         Toggle("记录最近目录", store.State.RecordRecent, v => store.State.RecordRecent = v);
         Toggle("从资源管理器发现目录", store.State.TrackExplorer, v => store.State.TrackExplorer = v);
         var side = new ComboBox { ItemsSource = new[] { "右侧停靠", "左侧停靠", "顶部停靠", "底部停靠" }, SelectedIndex = Array.IndexOf(new[] { "right", "left", "top", "bottom" }, store.State.Side), Margin = new Thickness(0, 8, 0, 12), Padding = new Thickness(5) };
-        side.SelectionChanged += (_, _) => { store.State.Side = new[] { "right", "left", "top", "bottom" }[Math.Max(0, side.SelectedIndex)]; store.Save(); Place(); }; dialog.Body.Children.Add(side);
+        side.SelectionChanged += (_, _) => { store.State.FloatingPanel = false; store.State.Side = new[] { "right", "left", "top", "bottom" }[Math.Max(0, side.SelectedIndex)]; store.Save(); Place(); }; dialog.Body.Children.Add(side);
         var installed = File.Exists(Path.Combine(store.Root, "integration.json"));
         var integrationBody = new StackPanel { Margin = new Thickness(10, 6, 10, 10) };
         var integration = new CheckBox { Content = "允许在当前终端切换目录", IsChecked = installed, FontSize = Ui.ExplorerFontSize, Margin = new Thickness(0, 0, 0, 8), IsEnabled = !preview };
@@ -476,8 +476,8 @@ public sealed partial class MainWindow : Window
     void Expand()
     {
         if (!collapsed && !animating) return;
-        if (!animating) Place();
-        StartTransition(true); Show(); Native.KeepAbove(handle);
+        if (!animating) { collapsed = false; Place(); }
+        StartTransition(true); Show(); edgeWindow?.Hide(); Native.KeepAbove(handle);
     }
     void StartTransition(bool expand)
     {
@@ -513,7 +513,7 @@ public sealed partial class MainWindow : Window
     void ShowEdgeWindow()
     {
         if (exiting || animating || !collapsed) return;
-        edgeWindow ??= new EdgeWindow(Expand, DockAt);
+        edgeWindow ??= new EdgeWindow(Expand, (x, y) => { store.State.FloatingPanel = false; DockAt(x, y); });
         edgeWindow.ShowAt(handle, store.State.Side);
         Hide();
     }
@@ -553,13 +553,20 @@ public sealed partial class MainWindow : Window
         var x = horizontal ? area.Left + (int)Math.Round(Math.Max(0, area.Width - width) * store.State.HorizontalRatio) : store.State.Side == "left" ? area.Left : area.Right - width;
         var y = area.Top + (int)Math.Round(Math.Max(0, area.Height - height) * Math.Clamp(store.State.VerticalRatio, 0, 1));
         if (horizontal) y = store.State.Side == "top" ? area.Top : area.Bottom - height;
+        if (!collapsed && store.State.FloatingPanel)
+        {
+            x = Math.Clamp((int)Math.Round(store.State.PanelX), area.Left, Math.Max(area.Left, area.Right - width));
+            y = Math.Clamp((int)Math.Round(store.State.PanelY), area.Top, Math.Max(area.Top, area.Bottom - height));
+        }
         Native.PositionDockWindow(handle, x, y, width, height);
         UpdateDockRegion();
         if (collapsed && !animating && IsLoaded) ShowEdgeWindow();
     }
-    void Snap()
+    void SavePanelPosition()
     {
-        var cursor = Forms.Cursor.Position; DockAt(cursor.X, cursor.Y);
+        var bounds = Native.WindowBounds(handle);
+        store.State.FloatingPanel = true; store.State.PanelX = bounds.Left; store.State.PanelY = bounds.Top;
+        DockAt((bounds.Left + bounds.Right) / 2, (bounds.Top + bounds.Bottom) / 2);
     }
     void DockAt(int x, int y)
     {
