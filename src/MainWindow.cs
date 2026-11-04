@@ -27,7 +27,8 @@ public sealed partial class MainWindow : Window
     readonly Stopwatch slideClock = new();
     Button? edgeButton;
     EdgeWindow? edgeWindow;
-    bool animating, draggingPanel;
+    bool animating, draggingPanel, floatingTransition;
+    Point dockPosition, floatingPosition;
     double reveal = 1, transitionFrom = 1, transitionTo = 1;
     int motionFrames;
     readonly StackPanel fixedList = new(), recentList = new();
@@ -121,7 +122,7 @@ public sealed partial class MainWindow : Window
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(7, 0, 0, 0) };
         brand.Children.Add(new Image { Source = AppIcon.Image, Width = 16, Height = 16, Margin = new Thickness(5, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
         brand.Children.Add(Ui.Text("PathDock", Ui.ExplorerFontSize));
-        brand.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; SavePanelPosition(); } e.Handled = true; };
+        header.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1 || IsTitleButton(e.OriginalSource as DependencyObject)) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; SavePanelPosition(); } e.Handled = true; };
         header.Children.Add(brand);
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
         var add = Ui.IconButton("\uE710", "添加文件夹"); add.Click += (_, _) => AddFolder(); tools.Children.Add(add);
@@ -140,6 +141,15 @@ public sealed partial class MainWindow : Window
         var panelMenu = NewMenu();
         AddAction(panelMenu, "添加文件夹…", () => { AddFolder(); return Task.CompletedTask; });
         AddAction(panelMenu, "导入…", ShowImport); layout.ContextMenu = panelMenu;
+    }
+    static bool IsTitleButton(DependencyObject? source)
+    {
+        while (source != null)
+        {
+            if (source is System.Windows.Controls.Primitives.ButtonBase) return true;
+            source = source is Visual ? VisualTreeHelper.GetParent(source) : LogicalTreeHelper.GetParent(source);
+        }
+        return false;
     }
     void ShowPanelMenu(FrameworkElement anchor)
     {
@@ -488,9 +498,28 @@ public sealed partial class MainWindow : Window
         transitionFrom = reveal; transitionTo = destination;
         surface.IsHitTestVisible = false;
         if (edgeButton != null) edgeButton.IsHitTestVisible = false;
+        floatingTransition = store.State.FloatingPanel;
+        if (floatingTransition)
+        {
+            var bounds = Native.WindowBounds(handle); var width = bounds.Right - bounds.Left; var height = bounds.Bottom - bounds.Top;
+            var area = Forms.Screen.FromPoint(new System.Drawing.Point((int)store.State.ScreenX, (int)store.State.ScreenY)).WorkingArea;
+            var horizontal = store.State.Side is "top" or "bottom";
+            dockPosition = new Point(horizontal ? area.Left + Math.Round(Math.Max(0, area.Width - width) * store.State.HorizontalRatio) : store.State.Side == "left" ? area.Left : area.Right - width,
+                horizontal ? store.State.Side == "top" ? area.Top : area.Bottom - height : area.Top + Math.Round(Math.Max(0, area.Height - height) * store.State.VerticalRatio));
+            floatingPosition = new Point(Math.Clamp(store.State.PanelX, area.Left, Math.Max(area.Left, area.Right - width)), Math.Clamp(store.State.PanelY, area.Top, Math.Max(area.Top, area.Bottom - height)));
+        }
         animating = true; slideClock.Restart();
+        PositionTransition(); UpdateDockRegion();
         CompositionTarget.Rendering -= AnimateDock;
         CompositionTarget.Rendering += AnimateDock;
+    }
+    void PositionTransition()
+    {
+        if (!floatingTransition) return;
+        var bounds = Native.WindowBounds(handle);
+        var x = dockPosition.X + (floatingPosition.X - dockPosition.X) * reveal;
+        var y = dockPosition.Y + (floatingPosition.Y - dockPosition.Y) * reveal;
+        Native.PositionDockWindow(handle, (int)Math.Round(x), (int)Math.Round(y), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
     }
     void AnimateDock(object? sender, EventArgs e)
     {
@@ -498,7 +527,7 @@ public sealed partial class MainWindow : Window
         var eased = 1 - Math.Pow(1 - progress, 3);
         reveal = transitionFrom + (transitionTo - transitionFrom) * eased;
         motionFrames++;
-        UpdateDockRegion();
+        PositionTransition(); UpdateDockRegion();
         if (progress < 1) return;
         reveal = transitionTo; animating = false;
         CompositionTarget.Rendering -= AnimateDock; slideClock.Stop();
