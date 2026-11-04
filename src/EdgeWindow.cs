@@ -21,7 +21,7 @@ internal sealed partial class EdgeWindow : Window
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
         AllowsTransparency = true; Background = Brushes.Transparent; Icon = AppIcon.Image;
         UseLayoutRounding = true;
-        shell.Child = new Image { Source = AppIcon.Vector, Width = 20, Height = 20, IsHitTestVisible = false };
+        shell.Child = new Image { Source = AppIcon.Vector, Width = 26, Height = 26, IsHitTestVisible = false };
         shell.BorderBrush = Ui.Brush("#BCCCDD"); shell.BorderThickness = new Thickness(1);
         shell.Background = new LinearGradientBrush(Color.FromRgb(247, 250, 253), Color.FromRgb(233, 240, 248), 90);
         shell.ToolTip = "PathDock · 拖动可更换停靠位置";
