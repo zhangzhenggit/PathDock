@@ -13,7 +13,7 @@ public sealed partial class MainWindow
         var width = Width; var height = Height; var retained = surface.Child; var originalHandle = handle;
         var stable = true; var completions = 0; var beforeFrames = motionFrames;
         var collapsedRegionsCorrect = true; var nativeFramesDisabled = true; var collapsedSamples = 0;
-        var independentEdgeVisible = true;
+        var independentEdgeVisible = true; var dragVisualCorrect = true;
         var monitorPlacementCorrect = true;
         var sizeFailures = new System.Collections.Generic.List<object>();
         async Task Settle()
@@ -60,6 +60,7 @@ public sealed partial class MainWindow
                 independentEdgeVisible &= !IsVisible && edgeWindow?.IsPresent == true && edgeWindow.IsAtAnchor;
                 if (i == 0 && edgeWindow != null)
                 {
+                    dragVisualCorrect &= await edgeWindow.CheckDragVisual();
                     var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(edgeWindow.ActualWidth * 2), (int)Math.Ceiling(edgeWindow.ActualHeight * 2), 192, 192, PixelFormats.Pbgra32);
                     bitmap.Render(edgeWindow);
                     var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
@@ -86,6 +87,6 @@ public sealed partial class MainWindow
         var menuState = new { WasTracked = menuWasTracked, Collapsed = collapsed, Open = menu.IsOpen, Depth = menuDepth, Dialog = dialogOpen, Animating = animating, Reveal = reveal };
         Expand(); await Settle();
         store.State.HorizontalRatio = originalHorizontal; store.State.VerticalRatio = originalVertical; store.State.Side = originalSide; store.State.ScreenX = originalX; store.State.ScreenY = originalY; Place();
-        return new { Passed = stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
+        return new { Passed = dragVisualCorrect && stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, DragVisualAndFollowCorrect = dragVisualCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
     }
 }
