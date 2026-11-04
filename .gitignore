@@ -1,0 +1,9 @@
+bin/
+obj/
+dist/
+artifacts/
+releases/
+*.zip
+*.user
+.vs/
+*.log

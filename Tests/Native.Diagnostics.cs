@@ -1,0 +1,29 @@
+using System;
+using System.Runtime.InteropServices;
+namespace PathDock;
+internal static partial class Native
+{
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
+    [DllImport("user32.dll")] static extern int GetWindowRgn(IntPtr window, IntPtr region);
+    [DllImport("gdi32.dll")] static extern int GetRgnBox(IntPtr region, out RECT rectangle);
+    public static (int Width, int Height, bool NativeFrameDisabled) DockRegionState(IntPtr window)
+    {
+        var region = CreateRectRgn(0, 0, 0, 0);
+        try
+        {
+            if (GetWindowRgn(window, region) == 0) return (0, 0, false);
+            GetRgnBox(region, out var rect);
+            var result = DwmGetWindowAttribute(window, 1, out var enabled, sizeof(int));
+            return (rect.Right - rect.Left, rect.Bottom - rect.Top, result >= 0 && enabled == 0);
+        }
+        finally { DeleteObject(region); }
+    }
+    [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
+    public static bool ReceivesPointerAtCenter(IntPtr window)
+    {
+        if (window == IntPtr.Zero || !GetWindowRect(window, out var rect)) return false;
+        var hit = WindowFromPoint(new POINT { X = (rect.Left + rect.Right) / 2, Y = (rect.Top + rect.Bottom) / 2 });
+        GetWindowThreadProcessId(hit, out var pid);
+        return pid == Environment.ProcessId;
+    }
+}

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>PathDock</AssemblyName>
+    <Version>0.3.0</Version>
+    <Description>Windows desktop folder shortcuts and edge dock</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\PathDock.ico</ApplicationIcon>
+    <!-- WPF owns DPI initialization; WinForms is used for Screen and tray only. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(PathDockDiagnostics)' == 'true'">
+    <DefineConstants>$(DefineConstants);PATHDOCK_DIAGNOSTICS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup><Compile Remove="Tests\**\*.cs" /></ItemGroup>
+  <ItemGroup Condition="'$(PathDockDiagnostics)' == 'true'"><Compile Include="Tests\**\*.cs" /></ItemGroup>
+  <ItemGroup><None Update="Integration\*.ps1" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets\PathDock.png" /><EmbeddedResource Include="Assets\PathDock.ico" /></ItemGroup>
+</Project>
