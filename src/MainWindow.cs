@@ -54,6 +54,7 @@ public sealed partial class MainWindow : Window
     IntPtr previousForeground;
     const double PanelWidth = 300;
     double desiredHeight = 300;
+    readonly ScrollViewer folderScroll = new();
 
     public MainWindow(DockStore store, bool preview, bool startCollapsed = false)
     {
@@ -134,8 +135,9 @@ public sealed partial class MainWindow : Window
         var lists = new StackPanel();
         lists.Children.Add(SectionHeader("固定")); lists.Children.Add(fixedList);
         lists.Children.Add(SectionHeader("最近")); lists.Children.Add(recentList);
-        var scroll = new ScrollViewer { Content = lists, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly };
-        Grid.SetRow(scroll, 1); layout.Children.Add(scroll);
+        folderScroll.Content = lists; folderScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+        folderScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; folderScroll.PanningMode = PanningMode.VerticalOnly;
+        Grid.SetRow(folderScroll, 1); layout.Children.Add(folderScroll);
         status.Text = ""; status.Visibility = Visibility.Collapsed; status.TextWrapping = TextWrapping.Wrap; status.Margin = new Thickness(5, 5, 5, 2);
         Grid.SetRow(status, 2); layout.Children.Add(status);
         var panelMenu = NewMenu();
@@ -185,14 +187,14 @@ public sealed partial class MainWindow : Window
         var fixedItems = store.State.Folders.Where(f => f.Pinned).ToList();
         foreach (var item in fixedItems) fixedList.Children.Add(FolderRow(item));
         if (fixedItems.Count == 0) fixedList.Children.Add(Empty("无项目", ""));
-        var recent = store.State.Folders.Where(f => !f.Pinned && f.LastUsed != null).OrderByDescending(f => f.LastUsed).Take(12).ToList();
+        var recent = store.State.Folders.Where(f => !f.Pinned && f.LastUsed != null).OrderByDescending(f => f.LastUsed).Take(10).ToList();
         foreach (var item in recent) recentList.Children.Add(FolderRow(item));
         if (recent.Count == 0) recentList.Children.Add(Empty("无项目", ""));
         // A collapsed startup still needs the same content height as an expanded
         // startup. Keep measurement independent of visibility and animation.
         var available = new Size(PanelWidth - 16, double.PositiveInfinity);
         fixedList.Measure(available); recentList.Measure(available);
-        desiredHeight = Math.Clamp(108 + fixedList.DesiredSize.Height + recentList.DesiredSize.Height, 180, 500);
+        desiredHeight = Math.Max(180, 108 + fixedList.DesiredSize.Height + recentList.DesiredSize.Height);
         if (IsLoaded && !animating) Place();
         fixedList.InvalidateMeasure(); recentList.InvalidateMeasure();
         if (fixedList.Parent is FrameworkElement items) items.InvalidateMeasure();
@@ -486,7 +488,7 @@ public sealed partial class MainWindow : Window
     void Expand()
     {
         if (!collapsed && !animating) return;
-        if (!animating) { collapsed = false; Place(); }
+        if (!animating) { folderScroll.ScrollToTop(); collapsed = false; Place(); }
         StartTransition(true); Show(); edgeWindow?.Hide(); Native.KeepAbove(handle);
     }
     void StartTransition(bool expand)
