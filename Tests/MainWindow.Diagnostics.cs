@@ -14,11 +14,12 @@ public sealed partial class MainWindow
         var stable = true; var completions = 0; var beforeFrames = motionFrames;
         var collapsedRegionsCorrect = true; var nativeFramesDisabled = true; var collapsedSamples = 0;
         var independentEdgeVisible = true; var dragVisualCorrect = true;
-        var monitorPlacementCorrect = true;
+        var monitorPlacementCorrect = true; var collapsedMeasurementCorrect = true;
         var sizeFailures = new System.Collections.Generic.List<object>();
         async Task Settle()
         {
             var timeout = Stopwatch.StartNew();
+            width = Width; height = Height;
             var boundsBefore = Native.WindowBounds(handle);
             while (animating && timeout.ElapsedMilliseconds < 2000)
             {
@@ -51,11 +52,21 @@ public sealed partial class MainWindow
             var restored = new DockStore(store.Root, false);
             monitorPlacementCorrect &= restored.State.Side == side && restored.State.ScreenX == store.State.ScreenX && restored.State.ScreenY == store.State.ScreenY;
             await Task.Delay(100);
+            Render(); await Task.Delay(50);
             var positioned = Native.WindowBounds(handle);
             monitorPlacementCorrect &= Math.Abs(side switch { "left" => positioned.Left - screen.WorkingArea.Left, "top" => positioned.Top - screen.WorkingArea.Top, "bottom" => positioned.Bottom - screen.WorkingArea.Bottom, _ => positioned.Right - screen.WorkingArea.Right }) <= 2;
             for (var i = 0; i < 3; i++)
             {
                 Collapse(); await Settle(); stable &= collapsed && reveal == 0;
+                if (i == 0) {
+                    var expectedHeight = desiredHeight;
+                    desiredHeight = 300; // Initial startup value before any visible render.
+                    Render();
+                    collapsedMeasurementCorrect &= Math.Abs(desiredHeight - expectedHeight) <= 1;
+                    var native = Native.WindowBounds(handle); var monitorScale = Native.ScaleAtPoint((int)store.State.ScreenX, (int)store.State.ScreenY);
+                    var expectedPixels = Math.Min((int)Math.Round(desiredHeight * monitorScale), Math.Max(100, area.Height - (int)Math.Round(16 * monitorScale)));
+                    collapsedMeasurementCorrect &= Math.Abs(native.Bottom - native.Top - expectedPixels) <= 1;
+                }
                 await Task.Delay(60);
                 independentEdgeVisible &= !IsVisible && edgeWindow?.IsPresent == true && edgeWindow.IsAtAnchor;
                 if (i == 0 && edgeWindow != null)
@@ -87,6 +98,6 @@ public sealed partial class MainWindow
         var menuState = new { WasTracked = menuWasTracked, Collapsed = collapsed, Open = menu.IsOpen, Depth = menuDepth, Dialog = dialogOpen, Animating = animating, Reveal = reveal };
         Expand(); await Settle();
         store.State.HorizontalRatio = originalHorizontal; store.State.VerticalRatio = originalVertical; store.State.Side = originalSide; store.State.ScreenX = originalX; store.State.ScreenY = originalY; Place();
-        return new { Passed = dragVisualCorrect && stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, DragVisualAndFollowCorrect = dragVisualCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
+        return new { Passed = collapsedMeasurementCorrect && dragVisualCorrect && stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, CollapsedStartupHeightCorrect = collapsedMeasurementCorrect, DragVisualAndFollowCorrect = dragVisualCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
     }
 }

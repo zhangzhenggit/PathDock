@@ -178,14 +178,12 @@ public sealed partial class MainWindow : Window
         var recent = store.State.Folders.Where(f => !f.Pinned && f.LastUsed != null).OrderByDescending(f => f.LastUsed).Take(12).ToList();
         foreach (var item in recent) recentList.Children.Add(FolderRow(item));
         if (recent.Count == 0) recentList.Children.Add(Empty("无项目", ""));
-        if (!collapsed && !animating)
-        {
-            var available = new Size(PanelWidth - 16, double.PositiveInfinity);
-            fixedList.Measure(available); recentList.Measure(available);
-            desiredHeight = Math.Clamp(108 + fixedList.DesiredSize.Height + recentList.DesiredSize.Height, 180, 500);
-            Height = desiredHeight;
-            if (IsLoaded) Place();
-        }
+        // A collapsed startup still needs the same content height as an expanded
+        // startup. Keep measurement independent of visibility and animation.
+        var available = new Size(PanelWidth - 16, double.PositiveInfinity);
+        fixedList.Measure(available); recentList.Measure(available);
+        desiredHeight = Math.Clamp(108 + fixedList.DesiredSize.Height + recentList.DesiredSize.Height, 180, 500);
+        if (IsLoaded && !animating) Place();
         fixedList.InvalidateMeasure(); recentList.InvalidateMeasure();
         if (fixedList.Parent is FrameworkElement items) items.InvalidateMeasure();
         layout.InvalidateMeasure(); layout.InvalidateArrange();
@@ -478,6 +476,7 @@ public sealed partial class MainWindow : Window
     void Expand()
     {
         if (!collapsed && !animating) return;
+        if (!animating) Place();
         StartTransition(true); Show(); Native.KeepAbove(handle);
     }
     void StartTransition(bool expand)
@@ -506,6 +505,7 @@ public sealed partial class MainWindow : Window
         surface.IsHitTestVisible = !collapsed;
         if (edgeButton != null) edgeButton.IsHitTestVisible = collapsed;
         UpdateDockRegion();
+        Place();
         if (collapsed) ShowEdgeWindow();
         else edgeWindow?.Hide();
         if (!collapsed && !store.State.KeepOpen && !IsMouseOver) hideTimer.Start();
