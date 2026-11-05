@@ -11,7 +11,7 @@ internal sealed partial class EdgeWindow : Window
 {
     IntPtr handle, anchor;
     string side = "right";
-    readonly Border shell = new();
+    readonly EdgeHandle shell = new();
     Point? dragOrigin;
     bool dragging;
     public EdgeWindow(Action expand, Action<int, int> dropped)
@@ -21,6 +21,7 @@ internal sealed partial class EdgeWindow : Window
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
         AllowsTransparency = true; Background = Brushes.Transparent; Icon = AppIcon.Image;
         UseLayoutRounding = true;
+        shell.Expand = expand;
         shell.Child = new Image { Source = AppIcon.Vector, Width = 26, Height = 26, IsHitTestVisible = false };
         shell.BorderBrush = Ui.Brush("#BCCCDD"); shell.BorderThickness = new Thickness(1);
         shell.Background = new LinearGradientBrush(Color.FromRgb(247, 250, 253), Color.FromRgb(233, 240, 248), 90);

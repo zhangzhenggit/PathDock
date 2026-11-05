@@ -26,6 +26,19 @@ internal sealed partial class EdgeWindow
         StopDragVisual(); PositionAtAnchor();
         return floating && immediate && shell.Effect == null && !dragging;
     }
+    public bool HasAccessibleButton
+    {
+        get {
+            var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(shell);
+            return peer?.GetAutomationControlType() == System.Windows.Automation.Peers.AutomationControlType.Button
+                && peer.GetName() == "展开 PathDock" && peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke) is System.Windows.Automation.Provider.IInvokeProvider;
+        }
+    }
+    public void InvokeAccessibleButton()
+    {
+        var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(shell)!;
+        ((System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
+    }
     public bool IsPresent => IsVisible && WindowState == WindowState.Normal && Native.ReceivesPointerAtCenter(handle);
     public bool IsAtAnchor
     {

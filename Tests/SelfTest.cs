@@ -17,6 +17,27 @@ internal static class SelfTest
         try
         {
             Directory.CreateDirectory(root);
+            Test("Nested collection batches persist once at outer completion", () => {
+                var store = new DockStore(Path.Combine(root, "batch"), false);
+                var before = File.ReadAllText(store.StateFile);
+                using (store.BatchUpdates()) {
+                    store.Visit(@"C:\BatchA", "test");
+                    using (store.BatchUpdates()) { store.Visit(@"C:\BatchB", "test"); store.AddPinned(@"C:\BatchC"); }
+                    Require(File.ReadAllText(store.StateFile) == before);
+                }
+                var restored = new DockStore(store.Root, false);
+                Require(restored.State.Folders.Count == 3 && restored.State.Folders.Count(f => f.Pinned) == 1);
+                using (store.BatchUpdates()) { }
+                store.AddPinned(@"C:\AfterBatch");
+                Require(new DockStore(store.Root, false).State.Folders.Count == 4);
+            });
+            Test("Collection batch scope is released after exception", () => {
+                var store = new DockStore(Path.Combine(root, "batch-exception"), false);
+                try { using (store.BatchUpdates()) { store.Visit(@"C:\BeforeError", "test"); throw new InvalidOperationException(); } }
+                catch (InvalidOperationException) { }
+                Require(new DockStore(store.Root, false).State.Folders.Count == 1);
+                store.AddPinned(@"C:\StillWorks"); Require(new DockStore(store.Root, false).State.Folders.Count == 2);
+            });
             Test("Nearest edge supports offset and negative monitor coordinates", () => {
                 foreach (var area in new[] { new System.Drawing.Rectangle(0, 0, 3840, 2100), new System.Drawing.Rectangle(-2560, -200, 2560, 1400), new System.Drawing.Rectangle(3840, 104, 3072, 1850) }) {
                     Require(MainWindow.NearestSide(area, area.Left + 2, area.Top + area.Height / 2) == "left");

@@ -38,6 +38,8 @@ public sealed class DockState
 
 public sealed class DockStore
 {
+    int batchDepth;
+    bool savePending;
     public string Root { get; }
     public string StateFile => System.IO.Path.Combine(Root, "settings.json");
     public DockState State { get; private set; }
@@ -119,10 +121,28 @@ public sealed class DockStore
     {
         State.HiddenRecent.Add(item.Path); State.Folders.Remove(item); Save();
     }
+    public IDisposable BatchUpdates()
+    {
+        batchDepth++;
+        return new SaveBatch(this);
+    }
+    sealed class SaveBatch : IDisposable
+    {
+        DockStore? store;
+        public SaveBatch(DockStore store) => this.store = store;
+        public void Dispose()
+        {
+            var owner = store; if (owner == null) return; store = null;
+            if (--owner.batchDepth == 0 && owner.savePending) owner.Save();
+        }
+    }
     public void Save()
     {
+        if (batchDepth > 0) { savePending = true; return; }
+
         var temporary = StateFile + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(State, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(temporary, StateFile, true);
+        savePending = false;
     }
 }

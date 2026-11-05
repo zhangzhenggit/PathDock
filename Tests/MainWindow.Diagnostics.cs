@@ -100,6 +100,43 @@ public sealed partial class MainWindow
         var menuCollapseWorks = menuWasTracked && collapsed && !menu.IsOpen && menuDepth == 0;
         var menuState = new { WasTracked = menuWasTracked, Collapsed = collapsed, Open = menu.IsOpen, Depth = menuDepth, Dialog = dialogOpen, Animating = animating, Reveal = reveal };
         Expand(); await Settle();
+        var rowReuseCorrect = true;
+        var oldFixed = fixedList.Children.Cast<UIElement>().ToArray();
+        var oldRecent = recentList.Children.Cast<UIElement>().ToArray();
+        Render();
+        rowReuseCorrect &= oldFixed.SequenceEqual(fixedList.Children.Cast<UIElement>()) && oldRecent.SequenceEqual(recentList.Children.Cast<UIElement>());
+        var entry = store.State.Folders.FirstOrDefault(f => f.Pinned);
+        if (entry != null) {
+            var name = entry.Name; var rowIndex = store.State.Folders.Where(f => f.Pinned).ToList().IndexOf(entry);
+            entry.Name += " test"; Render();
+            rowReuseCorrect &= !ReferenceEquals(oldFixed[rowIndex], fixedList.Children[rowIndex]);
+            for (var i = 0; i < oldFixed.Length; i++) if (i != rowIndex) rowReuseCorrect &= ReferenceEquals(oldFixed[i], fixedList.Children[i]);
+            entry.Name = name; Render();
+        }
+        var reordered = store.State.Folders.Where(f => !f.Pinned && f.LastUsed != null).OrderByDescending(f => f.LastUsed).Take(10).LastOrDefault();
+        if (reordered != null) {
+            var prior = reordered.LastUsed;
+            var sameRow = recentList.Children.OfType<Button>().Single(row => row.Tag is RowStamp stamp && ReferenceEquals(stamp.Entry, reordered));
+            reordered.LastUsed = DateTimeOffset.UtcNow.AddDays(1); Render();
+            rowReuseCorrect &= ReferenceEquals(recentList.Children[0], sameRow);
+            reordered.LastUsed = prior; Render();
+        }
+        oldRecent = recentList.Children.Cast<UIElement>().ToArray();
+        draggingPanel = true; Render();
+        rowReuseCorrect &= renderPending && oldRecent.SequenceEqual(recentList.Children.Cast<UIElement>());
+        draggingPanel = false; Render(); rowReuseCorrect &= !renderPending;
+        Collapse(); await Settle();
+        var accessibleEdgeCorrect = edgeWindow?.HasAccessibleButton == true;
+        edgeWindow?.InvokeAccessibleButton();
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle); await Settle();
+        accessibleEdgeCorrect &= !collapsed && edgeWindow?.IsVisible == false;
+        var hiddenRejected = false;
+        try { edgeWindow?.InvokeAccessibleButton(); } catch (System.Windows.Automation.ElementNotEnabledException) { hiddenRejected = true; }
+        accessibleEdgeCorrect &= hiddenRejected;
+        StartTransition(false, false);
+        var disabledAnimationCorrect = collapsed && !animating && reveal == 0 && !IsVisible && edgeWindow?.IsPresent == true;
+        StartTransition(true, false); Show();
+        disabledAnimationCorrect &= !collapsed && !animating && reveal == 1 && surface.IsHitTestVisible && edgeWindow?.IsVisible == false;
         var recentLimitCorrect = recentList.Children.Count == Math.Max(1, Math.Min(10, store.State.Folders.Count(f => !f.Pinned && f.LastUsed != null)));
         folderScroll.ScrollToVerticalOffset(100);
         Collapse(); await Settle(); Expand(); await Settle();
@@ -131,6 +168,6 @@ public sealed partial class MainWindow
         }
         store.State.FloatingPanel = originalFloating; store.State.PanelX = originalPanelX; store.State.PanelY = originalPanelY;
         store.State.HorizontalRatio = originalHorizontal; store.State.VerticalRatio = originalVertical; store.State.Side = originalSide; store.State.ScreenX = originalX; store.State.ScreenY = originalY; Place();
-        return new { Passed = recentLimitCorrect && openingStartsAtTop && titleDragCorrect && movingCollapseCorrect && floatingCorrect && collapsedMeasurementCorrect && dragVisualCorrect && stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, RecentLimitCorrect = recentLimitCorrect, OpeningStartsAtTop = openingStartsAtTop, TitleBlankAreaAndButtonExclusionCorrect = titleDragCorrect, FloatingCollapseMovesContinuously = movingCollapseCorrect, FloatingPanelAndExclusiveVisibilityCorrect = floatingCorrect, CollapsedStartupHeightCorrect = collapsedMeasurementCorrect, DragVisualAndFollowCorrect = dragVisualCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
+        return new { Passed = rowReuseCorrect && accessibleEdgeCorrect && disabledAnimationCorrect && recentLimitCorrect && openingStartsAtTop && titleDragCorrect && movingCollapseCorrect && floatingCorrect && collapsedMeasurementCorrect && dragVisualCorrect && stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, RowReuseAndDeferredUpdateCorrect = rowReuseCorrect, AccessibleEdgeInvokeCorrect = accessibleEdgeCorrect, DisabledAnimationCorrect = disabledAnimationCorrect, RecentLimitCorrect = recentLimitCorrect, OpeningStartsAtTop = openingStartsAtTop, TitleBlankAreaAndButtonExclusionCorrect = titleDragCorrect, FloatingCollapseMovesContinuously = movingCollapseCorrect, FloatingPanelAndExclusiveVisibilityCorrect = floatingCorrect, CollapsedStartupHeightCorrect = collapsedMeasurementCorrect, DragVisualAndFollowCorrect = dragVisualCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
     }
 }

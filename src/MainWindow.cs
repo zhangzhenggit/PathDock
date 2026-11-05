@@ -50,7 +50,7 @@ public sealed partial class MainWindow : Window
     Button? pin;
     IntPtr handle;
     HwndSource? source;
-    bool initialized;
+    bool initialized, renderPending;
     IntPtr previousForeground;
     const double PanelWidth = 300;
     double desiredHeight = 300;
@@ -84,7 +84,7 @@ public sealed partial class MainWindow : Window
             if (store.RecoveryNotice != null) Toast(store.RecoveryNotice);
             if (!preview) await CollectRecent();
         };
-        targetTimer.Tick += (_, _) => TrackTarget();
+        targetTimer.Tick += (_, _) => { TrackTarget(); TryRenderPending(); };
         recentTimer.Tick += async (_, _) => { if (!preview) await CollectRecent(); };
         hideTimer.Tick += (_, _) => { hideTimer.Stop(); if (!store.State.KeepOpen && !IsMouseOver && !dialogOpen && menuDepth == 0) Collapse(); };
         toastTimer.Tick += (_, _) => { toastTimer.Stop(); status.Text = ""; status.Visibility = Visibility.Collapsed; };
@@ -181,24 +181,44 @@ public sealed partial class MainWindow : Window
         var line = new Border { Height = 1, Background = Ui.Line, Margin = new Thickness(9, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(line, 1); grid.Children.Add(line); return grid;
     }
+    void TryRenderPending()
+    {
+        if (renderPending && (collapsed || !IsMouseOver)) Render();
+    }
+    sealed record RowStamp(FolderEntry Entry, string Name, string Path, bool Pinned);
+    void SynchronizeRows(StackPanel panel, System.Collections.Generic.IReadOnlyList<FolderEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            if (panel.Children.Count != 1 || panel.Children[0] is not Border)
+            { panel.Children.Clear(); panel.Children.Add(Empty("无项目", "")); }
+            return;
+        }
+        var existing = panel.Children.OfType<Button>().ToArray();
+        var rows = entries.Select(item => existing.FirstOrDefault(row => row.Tag is RowStamp stamp
+            && ReferenceEquals(stamp.Entry, item) && stamp.Name == item.Name && stamp.Path == item.Path && stamp.Pinned == item.Pinned) ?? (Button)FolderRow(item)).ToArray();
+        foreach (var old in panel.Children.Cast<UIElement>().Where(row => !rows.Contains(row)).ToArray()) panel.Children.Remove(old);
+        for (var i = 0; i < rows.Length; i++)
+        {
+            if (i < panel.Children.Count && ReferenceEquals(panel.Children[i], rows[i])) continue;
+            panel.Children.Remove(rows[i]); panel.Children.Insert(i, rows[i]);
+        }
+    }
     void Render()
     {
-        fixedList.Children.Clear(); recentList.Children.Clear();
+        if (animating || draggingPanel || dialogOpen || menuDepth > 0 || Mouse.LeftButton == MouseButtonState.Pressed)
+        { renderPending = true; return; }
+        renderPending = false;
         var fixedItems = store.State.Folders.Where(f => f.Pinned).ToList();
-        foreach (var item in fixedItems) fixedList.Children.Add(FolderRow(item));
-        if (fixedItems.Count == 0) fixedList.Children.Add(Empty("无项目", ""));
+        SynchronizeRows(fixedList, fixedItems);
         var recent = store.State.Folders.Where(f => !f.Pinned && f.LastUsed != null).OrderByDescending(f => f.LastUsed).Take(10).ToList();
-        foreach (var item in recent) recentList.Children.Add(FolderRow(item));
-        if (recent.Count == 0) recentList.Children.Add(Empty("无项目", ""));
+        SynchronizeRows(recentList, recent);
         // A collapsed startup still needs the same content height as an expanded
         // startup. Keep measurement independent of visibility and animation.
         var available = new Size(PanelWidth - 16, double.PositiveInfinity);
         fixedList.Measure(available); recentList.Measure(available);
         desiredHeight = Math.Max(180, 108 + fixedList.DesiredSize.Height + recentList.DesiredSize.Height);
         if (IsLoaded && !animating) Place();
-        fixedList.InvalidateMeasure(); recentList.InvalidateMeasure();
-        if (fixedList.Parent is FrameworkElement items) items.InvalidateMeasure();
-        layout.InvalidateMeasure(); layout.InvalidateArrange();
     }
     UIElement Empty(string title, string text) => new Border { Height = 30, Padding = new Thickness(29, 0, 0, 0), Child = Ui.Text(title, 12, Ui.Muted) };
     UIElement FolderRow(FolderEntry item)
@@ -210,6 +230,7 @@ public sealed partial class MainWindow : Window
         if (!item.Pinned) { label.TextWrapping = TextWrapping.Wrap; label.TextTrimming = TextTrimming.None; }
         Grid.SetColumn(label, 1); body.Children.Add(label);
         var button = Ui.Button(body); button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Padding = new Thickness(6, 0, 6, 0);
+        button.Tag = new RowStamp(item, item.Name, item.Path, item.Pinned);
         button.ToolTip = item.Path; System.Windows.Automation.AutomationProperties.SetName(button, item.Name);
         button.Click += async (_, _) => await Perform(item, store.State.ActionMode, button, target);
         button.ContextMenu = new ContextMenu();
@@ -347,27 +368,32 @@ public sealed partial class MainWindow : Window
         if (polling || exiting || animating) return; polling = true; var changed = false;
         try
         {
+            var discovered = new List<string>();
             if (store.State.RecordRecent && store.State.TrackExplorer)
             {
                 if (explorerRead == null || explorerRead.IsCompleted) explorerRead = Services.ExplorerFolders();
                 var folders = await explorerRead.WaitAsync(TimeSpan.FromSeconds(2));
-                foreach (var path in folders) if (!explorerSeen.Contains(path)) changed |= store.Visit(path, "资源管理器 · 发现");
+                discovered = folders.Where(path => !explorerSeen.Contains(path)).ToList();
                 explorerSeen = new(folders, StringComparer.OrdinalIgnoreCase);
             }
-            var directory = Path.Combine(store.Root, "activity");
-            if (Directory.Exists(directory)) foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
-                {
-                    try
+            using (store.BatchUpdates())
+            {
+                foreach (var path in discovered) changed |= store.Visit(path, "资源管理器 · 发现");
+                var directory = Path.Combine(store.Root, "activity");
+                if (Directory.Exists(directory)) foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
                     {
-                        var stamp = File.GetLastWriteTimeUtc(file); if (activitySeen.TryGetValue(file, out var seen) && seen == stamp) continue; activitySeen[file] = stamp;
-                        using var document = JsonDocument.Parse(File.ReadAllText(file)); var root = document.RootElement;
-                        var utc = root.GetProperty("Utc").GetDateTimeOffset();
-                        var age = DateTimeOffset.UtcNow - utc;
-                        if (age >= TimeSpan.Zero && age < TimeSpan.FromDays(7)) changed |= store.Visit(root.GetProperty("Path").GetString()!, "PowerShell", utc);
+                        try
+                        {
+                            var stamp = File.GetLastWriteTimeUtc(file); if (activitySeen.TryGetValue(file, out var seen) && seen == stamp) continue; activitySeen[file] = stamp;
+                            using var document = JsonDocument.Parse(File.ReadAllText(file)); var root = document.RootElement;
+                            var utc = root.GetProperty("Utc").GetDateTimeOffset();
+                            var age = DateTimeOffset.UtcNow - utc;
+                            if (age >= TimeSpan.Zero && age < TimeSpan.FromDays(7)) changed |= store.Visit(root.GetProperty("Path").GetString()!, "PowerShell", utc);
+                        }
+                        catch { }
                     }
-                    catch { }
-                }
-            if (changed && !dialogOpen && menuDepth == 0) Render();
+            }
+            if (changed) { renderPending = true; TryRenderPending(); }
         }
         catch { /* Optional source unavailable: keep existing data and UI responsive. */ }
         finally { polling = false; }
@@ -384,7 +410,7 @@ public sealed partial class MainWindow : Window
         {
             var picker = new Microsoft.Win32.OpenFolderDialog { Title = "选择要固定的目录", Multiselect = true };
             if (picker.ShowDialog(this) != true) return;
-            foreach (var path in picker.FolderNames) store.AddPinned(path); Toast("已添加到固定收藏");
+            using (store.BatchUpdates()) foreach (var path in picker.FolderNames) store.AddPinned(path); Toast("已添加到固定收藏");
         });
     }
     void EditFolder(FolderEntry item)
@@ -415,7 +441,7 @@ public sealed partial class MainWindow : Window
                     if (!box.IsEnabled) box.ToolTip = "已在固定收藏中"; choices.Add((box, item)); dialog.Body.Children.Add(box);
                 }
                 if (choices.Count == 0) dialog.Body.Children.Add(Ui.Text("没有可导入的目录，可直接添加文件夹。", 12, Ui.Muted));
-                var add = Ui.Button("添加所选目录", true); add.Margin = new Thickness(0, 18, 0, 8); add.Click += (_, _) => { var selected = choices.Where(c => c.Box.IsChecked == true).ToList(); foreach (var c in selected) store.AddPinned(c.Candidate.Path); dialog.Close(); Toast($"已添加 {selected.Count} 个目录"); }; dialog.Body.Children.Add(add);
+                var add = Ui.Button("添加所选目录", true); add.Margin = new Thickness(0, 18, 0, 8); add.Click += (_, _) => { var selected = choices.Where(c => c.Box.IsChecked == true).ToList(); using (store.BatchUpdates()) foreach (var c in selected) store.AddPinned(c.Candidate.Path); dialog.Close(); Toast($"已添加 {selected.Count} 个目录"); }; dialog.Body.Children.Add(add);
             }
             catch (Exception ex) { loading.Text = "读取失败：" + ex.Message; loading.TextWrapping = TextWrapping.Wrap; }
         };
@@ -474,7 +500,7 @@ public sealed partial class MainWindow : Window
     async void DropFolder(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
-        try { var valid = await Task.Run(() => paths.Where(Directory.Exists).ToArray()).WaitAsync(TimeSpan.FromSeconds(3)); foreach (var path in valid) store.AddPinned(path); if (collapsed) Expand(); Render(); Toast($"已添加 {valid.Length} 个目录"); }
+        try { var valid = await Task.Run(() => paths.Where(Directory.Exists).ToArray()).WaitAsync(TimeSpan.FromSeconds(3)); using (store.BatchUpdates()) foreach (var path in valid) store.AddPinned(path); if (collapsed) Expand(); Render(); Toast($"已添加 {valid.Length} 个目录"); }
         catch (Exception ex) { Toast(ex.Message, true); }
     }
     void Collapse()
@@ -491,7 +517,7 @@ public sealed partial class MainWindow : Window
         if (!animating) { folderScroll.ScrollToTop(); collapsed = false; Place(); }
         StartTransition(true); Show(); edgeWindow?.Hide(); Native.KeepAbove(handle);
     }
-    void StartTransition(bool expand)
+    void StartTransition(bool expand, bool? animate = null)
     {
         hideTimer.Stop();
         var destination = expand ? 1d : 0d;
@@ -510,9 +536,13 @@ public sealed partial class MainWindow : Window
                 horizontal ? store.State.Side == "top" ? area.Top : area.Bottom - height : area.Top + Math.Round(Math.Max(0, area.Height - height) * store.State.VerticalRatio));
             floatingPosition = new Point(Math.Clamp(store.State.PanelX, area.Left, Math.Max(area.Left, area.Right - width)), Math.Clamp(store.State.PanelY, area.Top, Math.Max(area.Top, area.Bottom - height)));
         }
+        CompositionTarget.Rendering -= AnimateDock;
+        if (!(animate ?? SystemParameters.ClientAreaAnimation))
+        {
+            reveal = destination; CompleteTransition(); return;
+        }
         animating = true; slideClock.Restart();
         PositionTransition(); UpdateDockRegion();
-        CompositionTarget.Rendering -= AnimateDock;
         CompositionTarget.Rendering += AnimateDock;
     }
     void PositionTransition()
@@ -531,7 +561,11 @@ public sealed partial class MainWindow : Window
         motionFrames++;
         PositionTransition(); UpdateDockRegion();
         if (progress < 1) return;
-        reveal = transitionTo; animating = false;
+        reveal = transitionTo; CompleteTransition();
+    }
+    void CompleteTransition()
+    {
+        animating = false;
         CompositionTarget.Rendering -= AnimateDock; slideClock.Stop();
         surface.IsHitTestVisible = !collapsed;
         if (edgeButton != null) edgeButton.IsHitTestVisible = collapsed;
