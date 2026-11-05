@@ -20,6 +20,24 @@ internal static partial class Native
         finally { DeleteObject(region); }
     }
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
+    [DllImport("gdi32.dll")] static extern bool PtInRegion(IntPtr region, int x, int y);
+    public static bool TailContourMatchesEdge(IntPtr window, double scale)
+    {
+        var region = CreateRectRgn(0, 0, 0, 0);
+        try {
+            if (GetWindowRgn(window, region) == 0) return false;
+            GetRgnBox(region, out var rect);
+            return !PtInRegion(region, rect.Left + (int)Math.Round(scale), rect.Top + (int)Math.Round(4 * scale));
+        } finally { DeleteObject(region); }
+    }
+    public static bool CoveredByWindow(IntPtr window, IntPtr covering)
+    {
+        if (!GetWindowRect(window, out var rect)) return false;
+        var x = (rect.Left + rect.Right) / 2; var y = (rect.Top + rect.Bottom) / 2;
+        foreach (var point in new[] { new POINT { X=x,Y=y },new POINT { X=rect.Left+1,Y=y },new POINT { X=rect.Right-1,Y=y },new POINT { X=x,Y=rect.Top+1 },new POINT { X=x,Y=rect.Bottom-1 } })
+            if (WindowFromPoint(point) != covering) return false;
+        return true;
+    }
     public static bool ReceivesPointerAtCenter(IntPtr window)
     {
         if (window == IntPtr.Zero || !GetWindowRect(window, out var rect)) return false;

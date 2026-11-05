@@ -39,6 +39,16 @@ internal sealed partial class EdgeWindow
         var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(shell)!;
         ((System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
     }
+    public void SetRenderedStateForTest(bool ready) => HasRenderedContent = ready;
+    public bool IsCoveredByMain => warming && IsVisible && !shell.IsEnabled && Native.CoveredByWindow(handle, anchor);
+    public bool PresentationMatches(System.Windows.Controls.Border other)
+    {
+        var a = (System.Windows.Controls.Image)shell.Child; var b = (System.Windows.Controls.Image)other.Child;
+        var x = (System.Windows.Media.LinearGradientBrush)shell.Background; var y = (System.Windows.Media.LinearGradientBrush)other.Background;
+        return shell.CornerRadius == other.CornerRadius && shell.BorderThickness == other.BorderThickness
+            && ReferenceEquals(a.Source, b.Source) && a.Width == b.Width && a.Height == b.Height
+            && x.GradientStops[0].Color == y.GradientStops[0].Color && x.GradientStops[1].Color == y.GradientStops[1].Color;
+    }
     public bool IsPresent => IsVisible && WindowState == WindowState.Normal && Native.ReceivesPointerAtCenter(handle);
     public bool IsAtAnchor
     {

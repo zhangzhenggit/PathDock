@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     readonly TranslateTransform panelSlide = new();
     readonly Stopwatch slideClock = new();
     Button? edgeButton;
+    readonly Border edgePresentation = new();
     EdgeWindow? edgeWindow;
     bool animating, draggingPanel, floatingTransition, waitingForFirstRender;
     Point dockPosition, floatingPosition;
@@ -109,10 +110,11 @@ public sealed partial class MainWindow : Window
         surface.Margin = new Thickness(0); surface.CornerRadius = new CornerRadius(0);
         surface.Background = Ui.Canvas; surface.BorderBrush = Ui.Brush("#CED4DC"); surface.BorderThickness = new Thickness(1);
         surface.Child = layout; surface.RenderTransform = panelSlide; host.Background = Ui.Canvas; host.Children.Add(surface); Content = host;
-        edgeButton = Ui.Button(new Image { Source = AppIcon.Vector, Width = 26, Height = 26 });
+        EdgeHandle.ConfigureVisual(edgePresentation);
+        edgeButton = Ui.Button(edgePresentation);
         edgeButton.Width = 28; edgeButton.Height = 56; edgeButton.Padding = new Thickness(0); edgeButton.ToolTip = "PathDock";
         edgeButton.VerticalAlignment = VerticalAlignment.Center; edgeButton.HorizontalAlignment = HorizontalAlignment.Right;
-        edgeButton.Background = Ui.Brush("#EDF3FA"); edgeButton.Opacity = 0; edgeButton.IsHitTestVisible = false;
+        edgeButton.Background = Brushes.Transparent; edgeButton.Opacity = 0; edgeButton.IsHitTestVisible = false;
         edgeButton.Click += (_, _) => Expand(); host.Children.Add(edgeButton);
         layout.Margin = new Thickness(7, 0, 7, 6);
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -537,9 +539,13 @@ public sealed partial class MainWindow : Window
                 horizontal ? store.State.Side == "top" ? area.Top : area.Bottom - height : area.Top + Math.Round(Math.Max(0, area.Height - height) * store.State.VerticalRatio));
             floatingPosition = new Point(Math.Clamp(store.State.PanelX, area.Left, Math.Max(area.Left, area.Right - width)), Math.Clamp(store.State.PanelY, area.Top, Math.Max(area.Top, area.Bottom - height)));
         }
-        // Prepare the hidden edge HWND and destination DPI before the timed motion,
-        // rather than paying that one-time cost during the final rendering callback.
-        if (!expand) EnsureEdgeWindow().PrepareAt(handle, store.State.Side);
+        // Render the edge behind the opaque panel before motion. The final handoff
+        // then uses an already-painted window rather than showing a fresh HWND.
+        if (!expand)
+        {
+            if (animate ?? SystemParameters.ClientAreaAnimation) EnsureEdgeWindow().WarmBehind(handle, store.State.Side);
+            else EnsureEdgeWindow().PrepareAt(handle, store.State.Side);
+        }
         transitionDurationMs = expand ? 220 : 240;
         CompositionTarget.Rendering -= AnimateDock;
         if (!(animate ?? SystemParameters.ClientAreaAnimation))
@@ -549,7 +555,7 @@ public sealed partial class MainWindow : Window
         animating = true; waitingForFirstRender = expand && !IsVisible;
         // Showing a hidden HWND must not consume the visible animation's time.
         if (waitingForFirstRender) slideClock.Reset(); else slideClock.Restart();
-        PositionTransition(); UpdateDockRegion();
+        PositionTransition(); UpdateDockRegion(); if (floatingTransition) edgeWindow?.TrackBehind();
         CompositionTarget.Rendering += AnimateDock;
     }
     void PositionTransition()
@@ -569,8 +575,10 @@ public sealed partial class MainWindow : Window
         var eased = DockEasing(progress);
         reveal = transitionFrom + (transitionTo - transitionFrom) * eased;
         motionFrames++;
-        PositionTransition(); UpdateDockRegion();
+        PositionTransition(); UpdateDockRegion(); if (floatingTransition) edgeWindow?.TrackBehind();
         if (progress < 1) return;
+        // Keep the final panel frame until the replacement has produced content.
+        if (collapsed && edgeWindow is { HasRenderedContent: false }) return;
         reveal = transitionTo; CompleteTransition();
     }
     void CompleteTransition()
@@ -602,16 +610,19 @@ public sealed partial class MainWindow : Window
         var y = horizontal ? store.State.Side == "top" ? 0 : ActualHeight - visibleHeight : (ActualHeight - visibleHeight) / 2;
         panelSlide.X = horizontal ? 0 : Math.Round((store.State.Side == "left" ? -1 : 1) * (ActualWidth - visibleWidth) * dpi.DpiScaleX) / dpi.DpiScaleX;
         panelSlide.Y = horizontal ? Math.Round((store.State.Side == "top" ? -1 : 1) * (ActualHeight - visibleHeight) * dpi.DpiScaleY) / dpi.DpiScaleY : 0;
+        var edgeReveal = Math.Clamp((.22 - reveal) / .22, 0, 1);
         if (edgeButton != null)
         {
             edgeButton.Width = horizontal ? 56 : 28; edgeButton.Height = horizontal ? 28 : 56;
+            edgePresentation.Width = edgeButton.Width; edgePresentation.Height = edgeButton.Height;
+            EdgeHandle.ApplyDockSide(edgePresentation, store.State.Side);
             edgeButton.HorizontalAlignment = horizontal ? HorizontalAlignment.Center : store.State.Side == "left" ? HorizontalAlignment.Left : HorizontalAlignment.Right;
             edgeButton.VerticalAlignment = horizontal ? store.State.Side == "top" ? VerticalAlignment.Top : VerticalAlignment.Bottom : VerticalAlignment.Center;
-            edgeButton.Opacity = Math.Clamp((.22 - reveal) / .22, 0, 1);
+            edgeButton.Opacity = edgeReveal;
         }
         Native.SetVisibleRegion(handle, (int)Math.Round(x * dpi.DpiScaleX), (int)Math.Round(y * dpi.DpiScaleY),
             (int)Math.Ceiling(visibleWidth * dpi.DpiScaleX), (int)Math.Ceiling(visibleHeight * dpi.DpiScaleY),
-            (int)Math.Round(8 * dpi.DpiScaleX));
+            (int)Math.Round((collapsed ? 8 + 12 * edgeReveal : 8) * dpi.DpiScaleX));
     }
     void Place()
     {

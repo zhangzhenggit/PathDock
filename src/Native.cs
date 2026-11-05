@@ -31,6 +31,8 @@ internal static partial class Native
     }
     public static void PositionDockWindow(IntPtr window, int left, int top, int width, int height)
         => SetWindowPos(window, new IntPtr(-1), left, top, width, height, 0x10);
+    public static void PositionDockBehind(IntPtr window, IntPtr main, int left, int top, int width, int height)
+        => SetWindowPos(window, main, left, top, width, height, 0x10);
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out RECT rect);
 

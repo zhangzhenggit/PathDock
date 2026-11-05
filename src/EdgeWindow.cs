@@ -13,18 +13,18 @@ internal sealed partial class EdgeWindow : Window
     string side = "right";
     readonly EdgeHandle shell = new();
     Point? dragOrigin;
-    bool dragging;
+    bool dragging, warming;
+    public bool HasRenderedContent { get; private set; }
     public EdgeWindow(Action expand, Action<int, int> dropped)
     {
         Title = "PathDock"; Width = 28; Height = 56;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
         AllowsTransparency = true; Background = Brushes.Transparent; Icon = AppIcon.Image;
+        ContentRendered += (_, _) => HasRenderedContent = true;
         UseLayoutRounding = true;
         shell.Expand = expand;
-        shell.Child = new Image { Source = AppIcon.Vector, Width = 26, Height = 26, IsHitTestVisible = false };
-        shell.BorderBrush = Ui.Brush("#BCCCDD"); shell.BorderThickness = new Thickness(1);
-        shell.Background = new LinearGradientBrush(Color.FromRgb(247, 250, 253), Color.FromRgb(233, 240, 248), 90);
+        EdgeHandle.ConfigureVisual(shell);
         shell.ToolTip = "PathDock · 拖动可更换停靠位置";
         Content = shell;
         shell.MouseLeftButtonDown += (_, e) =>
@@ -82,10 +82,19 @@ internal sealed partial class EdgeWindow : Window
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
         PositionAtAnchor();
     }
+    public void WarmBehind(IntPtr mainWindow, string dockSide)
+    {
+        warming = true; shell.IsEnabled = false; Topmost = false;
+        PrepareAt(mainWindow, dockSide);
+        if (!IsVisible) Show();
+        PositionAtAnchor();
+    }
+    public void TrackBehind() { if (warming && IsVisible) PositionAtAnchor(); }
     public void ShowAt(IntPtr mainWindow, string dockSide)
     {
         anchor = mainWindow; side = dockSide;
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
+        warming = false; shell.IsEnabled = true; Topmost = true;
         PositionAtAnchor(); if (!IsVisible) Show(); PositionAtAnchor();
     }
     void PositionAtAnchor()
@@ -97,8 +106,8 @@ internal sealed partial class EdgeWindow : Window
         var height = (int)Math.Round((horizontal ? 28 : 56) * scale);
         var x = horizontal ? bounds.Left + (bounds.Right - bounds.Left - width) / 2 : side == "left" ? bounds.Left : bounds.Right - width;
         var y = horizontal ? side == "top" ? bounds.Top : bounds.Bottom - height : bounds.Top + (bounds.Bottom - bounds.Top - height) / 2;
-        shell.CornerRadius = side switch { "left" => new(0, 10, 10, 0), "top" => new(0, 0, 10, 10), "bottom" => new(10, 10, 0, 0), _ => new(10, 0, 0, 10) };
-        shell.BorderThickness = side switch { "left" => new(0, 1, 1, 1), "top" => new(1, 0, 1, 1), "bottom" => new(1, 1, 1, 0), _ => new(1, 1, 0, 1) };
-        Native.PositionDockWindow(handle, x, y, width, height);
+        EdgeHandle.ApplyDockSide(shell, side);
+        if (warming) Native.PositionDockBehind(handle, anchor, x, y, width, height);
+        else Native.PositionDockWindow(handle, x, y, width, height);
     }
 }
