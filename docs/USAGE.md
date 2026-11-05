@@ -29,7 +29,7 @@ Windows 目录快捷工具。解压到固定位置，双击 `PathDock.exe` 启�
 
 收藏和偏好保存在 `%LOCALAPPDATA%\PathDock`。更新时替换程序文件，不必删除数据。启用自启或 PowerShell 集成后，请保持程序目录固定；移动前先关闭相应选项。
 
-便携包包含 .NET 运行时；framework-dependent 包需要安装 .NET 8 Windows Desktop Runtime。PowerShell 集成功能需要 PowerShell 7。
+PowerShell 集成功能需要 PowerShell 7。
 
 - 收起后可直接拖动边缘按钮，松手会吸附到光标所在屏幕最近的边（左、右、上、下）；位置自动保存。展开时也可拖动标题。
 - 设置中的停靠方向可手动选择四边；多屏使用各屏工作区，避开任务栏。

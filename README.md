@@ -4,7 +4,7 @@ Windows 目录快捷工具。固定常用目录、发现最近目录，并根据
 
 ## 使用
 
-下载并解压便携包，双击 PathDock.exe。便携包包含 .NET 8 Windows Desktop 运行时；framework-dependent 构建需要单独安装该运行时。PowerShell 集成需要 PowerShell 7。
+下载并解压发布包，双击 PathDock.exe。默认精简包需要安装 .NET 8 Desktop Runtime。PowerShell 集成需要 PowerShell 7。
 
 - 点击屏幕边缘的蓝色按钮展开；鼠标离开后自动收起。
 - Ctrl + Alt + 空格展开或收起；顶部图钉保持面板展开。
@@ -65,4 +65,5 @@ Start-PathDock.cmd 优先运行 dist/PathDock.exe，首次开发启动时会调�
 - Assets/：图标资源及生成脚本。
 - Tests/：隔离测试、诊断构建及渲染工具。
 - docs/：用户说明和发布检查记录。
-- artifacts/、dist/、releases/：生成文件，不提交 Git。
+- bin/、obj/、artifacts/：编译中间文件、诊断输出和检查记录，可清理后重新生成。
+- dist/、releases/：当前运行文件和发布包。
