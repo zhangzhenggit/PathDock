@@ -17,6 +17,13 @@ internal static class SelfTest
         try
         {
             Directory.CreateDirectory(root);
+            Test("Collapse easing starts gently and finishes without overshoot", () => {
+                Require(MainWindow.DockEasing(false, 0) == 0 && MainWindow.DockEasing(false, 1) == 1);
+                Require(MainWindow.DockEasing(false, .25) < .2 && MainWindow.DockEasing(false, .75) > .8);
+                var previous = 0d;
+                for (var i = 1; i <= 100; i++) { var value = MainWindow.DockEasing(false, i / 100d); Require(value >= previous && value <= 1); previous = value; }
+                Require(MainWindow.DockEasing(true, .5) > .8); // Existing snappy expansion remains unchanged.
+            });
             Test("Nested collection batches persist once at outer completion", () => {
                 var store = new DockStore(Path.Combine(root, "batch"), false);
                 var before = File.ReadAllText(store.StateFile);

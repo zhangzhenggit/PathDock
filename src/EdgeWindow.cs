@@ -76,6 +76,12 @@ internal sealed partial class EdgeWindow : Window
         Native.PositionDockWindow(handle, (int)Math.Round(cursor.X - size / 2d), (int)Math.Round(cursor.Y - size / 2d), size, size);
     }
     void StopDragVisual() => dragging = false;
+    public void PrepareAt(IntPtr mainWindow, string dockSide)
+    {
+        anchor = mainWindow; side = dockSide;
+        if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
+        PositionAtAnchor();
+    }
     public void ShowAt(IntPtr mainWindow, string dockSide)
     {
         anchor = mainWindow; side = dockSide;

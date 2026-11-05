@@ -53,6 +53,7 @@ public sealed partial class MainWindow : Window
     bool initialized, renderPending;
     IntPtr previousForeground;
     const double PanelWidth = 300;
+    double transitionDurationMs = 180;
     double desiredHeight = 300;
     readonly ScrollViewer folderScroll = new();
 
@@ -108,7 +109,7 @@ public sealed partial class MainWindow : Window
         surface.Margin = new Thickness(0); surface.CornerRadius = new CornerRadius(0);
         surface.Background = Ui.Canvas; surface.BorderBrush = Ui.Brush("#CED4DC"); surface.BorderThickness = new Thickness(1);
         surface.Child = layout; surface.RenderTransform = panelSlide; host.Background = Ui.Canvas; host.Children.Add(surface); Content = host;
-        edgeButton = Ui.Button(new Image { Source = AppIcon.Image, Width = 16, Height = 16 });
+        edgeButton = Ui.Button(new Image { Source = AppIcon.Vector, Width = 26, Height = 26 });
         edgeButton.Width = 28; edgeButton.Height = 56; edgeButton.Padding = new Thickness(0); edgeButton.ToolTip = "PathDock";
         edgeButton.VerticalAlignment = VerticalAlignment.Center; edgeButton.HorizontalAlignment = HorizontalAlignment.Right;
         edgeButton.Background = Ui.Brush("#EDF3FA"); edgeButton.Opacity = 0; edgeButton.IsHitTestVisible = false;
@@ -536,6 +537,10 @@ public sealed partial class MainWindow : Window
                 horizontal ? store.State.Side == "top" ? area.Top : area.Bottom - height : area.Top + Math.Round(Math.Max(0, area.Height - height) * store.State.VerticalRatio));
             floatingPosition = new Point(Math.Clamp(store.State.PanelX, area.Left, Math.Max(area.Left, area.Right - width)), Math.Clamp(store.State.PanelY, area.Top, Math.Max(area.Top, area.Bottom - height)));
         }
+        // Prepare the hidden edge HWND and destination DPI before the timed motion,
+        // rather than paying that one-time cost during the final rendering callback.
+        if (!expand) EnsureEdgeWindow().PrepareAt(handle, store.State.Side);
+        transitionDurationMs = expand ? 180 : 240;
         CompositionTarget.Rendering -= AnimateDock;
         if (!(animate ?? SystemParameters.ClientAreaAnimation))
         {
@@ -553,10 +558,13 @@ public sealed partial class MainWindow : Window
         var y = dockPosition.Y + (floatingPosition.Y - dockPosition.Y) * reveal;
         Native.PositionDockWindow(handle, (int)Math.Round(x), (int)Math.Round(y), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
     }
+    internal static double DockEasing(bool expand, double progress) => expand
+        ? 1 - Math.Pow(1 - progress, 3)
+        : progress * progress * (3 - 2 * progress);
     void AnimateDock(object? sender, EventArgs e)
     {
-        var progress = Math.Clamp(slideClock.Elapsed.TotalMilliseconds / 180, 0, 1);
-        var eased = 1 - Math.Pow(1 - progress, 3);
+        var progress = Math.Clamp(slideClock.Elapsed.TotalMilliseconds / transitionDurationMs, 0, 1);
+        var eased = DockEasing(!collapsed, progress);
         reveal = transitionFrom + (transitionTo - transitionFrom) * eased;
         motionFrames++;
         PositionTransition(); UpdateDockRegion();
@@ -569,17 +577,16 @@ public sealed partial class MainWindow : Window
         CompositionTarget.Rendering -= AnimateDock; slideClock.Stop();
         surface.IsHitTestVisible = !collapsed;
         if (edgeButton != null) edgeButton.IsHitTestVisible = collapsed;
-        UpdateDockRegion();
-        Place();
-        if (collapsed) ShowEdgeWindow();
-        else edgeWindow?.Hide();
+        Place(); // Place already positions and shows the collapsed edge window.
+        if (!collapsed) edgeWindow?.Hide();
         if (!collapsed && !store.State.KeepOpen && !IsMouseOver) hideTimer.Start();
     }
+    EdgeWindow EnsureEdgeWindow() => edgeWindow ??= new EdgeWindow(Expand,
+        (x, y) => { store.State.FloatingPanel = false; DockAt(x, y); });
     void ShowEdgeWindow()
     {
         if (exiting || animating || !collapsed) return;
-        edgeWindow ??= new EdgeWindow(Expand, (x, y) => { store.State.FloatingPanel = false; DockAt(x, y); });
-        edgeWindow.ShowAt(handle, store.State.Side);
+        EnsureEdgeWindow().ShowAt(handle, store.State.Side);
         Hide();
     }
     void UpdateDockRegion()
