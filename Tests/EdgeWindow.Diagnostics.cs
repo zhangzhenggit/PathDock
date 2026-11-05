@@ -40,7 +40,18 @@ internal sealed partial class EdgeWindow
         ((System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
     }
     public void SetRenderedStateForTest(bool ready) => HasRenderedContent = ready;
-    public bool IsCoveredByMain => warming && IsVisible && !shell.IsEnabled && Native.CoveredByWindow(handle, anchor);
+    public bool IsPreparedForHandoff => warming && IsVisible && !shell.IsEnabled
+        && (tailActive ? Native.IsAboveWindow(handle, anchor) : Native.CoveredByWindow(handle, anchor));
+    public bool TailSourceReleased => !tailActive && tailBackdrop.Fill == null && shell.Opacity == 1;
+    public (byte[] Pixels, int Width, int Height) RenderTailPixels()
+    {
+        UpdateLayout(); var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Round(ActualWidth * dpi.DpiScaleX), (int)Math.Round(ActualHeight * dpi.DpiScaleY),
+            96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(this);
+        var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4]; bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+        return (pixels, bitmap.PixelWidth, bitmap.PixelHeight);
+    }
     public bool PresentationMatches(System.Windows.Controls.Border other)
     {
         var a = (System.Windows.Controls.Image)shell.Child; var b = (System.Windows.Controls.Image)other.Child;

@@ -21,6 +21,19 @@ internal static partial class Native
     }
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT point);
     [DllImport("gdi32.dll")] static extern bool PtInRegion(IntPtr region, int x, int y);
+    [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window, uint command);
+    public static bool IsAboveWindow(IntPtr window, IntPtr below)
+    {
+        for (var current = GetWindow(below, 3); current != IntPtr.Zero; current = GetWindow(current, 3))
+            if (current == window) return true;
+        return false;
+    }
+    public static bool RegionExcludes(IntPtr window, int x, int y)
+    {
+        var region = CreateRectRgn(0, 0, 0, 0);
+        try { return GetWindowRgn(window, region) != 0 && !PtInRegion(region, x, y); }
+        finally { DeleteObject(region); }
+    }
     public static bool TailContourMatchesEdge(IntPtr window, double scale)
     {
         var region = CreateRectRgn(0, 0, 0, 0);

@@ -14,6 +14,22 @@ internal sealed partial class EdgeWindow : Window
     readonly EdgeHandle shell = new();
     Point? dragOrigin;
     bool dragging, warming;
+    bool tailActive;
+    readonly System.Windows.Shapes.Rectangle tailBackdrop = new() { IsHitTestVisible = false };
+    public bool TailActive => tailActive;
+    public void SetTailMix(double amount, Rect sourceBounds)
+    {
+        if (!warming || !HasRenderedContent) return;
+        // Paint the panel's live slice in the transparent HWND, then fade it
+        // away. Its corner pixels reach transparency before the main HWND hides.
+        if (tailBackdrop.Fill is VisualBrush brush) brush.Viewbox = sourceBounds;
+        shell.Opacity = amount; tailBackdrop.Opacity = 1 - amount;
+        if (amount > 0 && !tailActive) { tailActive = true; Topmost = true; PositionAtAnchor(); }
+    }
+    public void ClearTail()
+    {
+        tailActive = false; tailBackdrop.Fill = null; tailBackdrop.Opacity = 0; shell.Opacity = 1;
+    }
     public bool HasRenderedContent { get; private set; }
     public EdgeWindow(Action expand, Action<int, int> dropped)
     {
@@ -26,7 +42,7 @@ internal sealed partial class EdgeWindow : Window
         shell.Expand = expand;
         EdgeHandle.ConfigureVisual(shell);
         shell.ToolTip = "PathDock · 拖动可更换停靠位置";
-        Content = shell;
+        var content = new Grid(); content.Children.Add(tailBackdrop); content.Children.Add(shell); Content = content;
         shell.MouseLeftButtonDown += (_, e) =>
         {
             var cursor = System.Windows.Forms.Cursor.Position;
@@ -82,9 +98,11 @@ internal sealed partial class EdgeWindow : Window
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
         PositionAtAnchor();
     }
-    public void WarmBehind(IntPtr mainWindow, string dockSide)
+    public void WarmBehind(IntPtr mainWindow, string dockSide, Visual source, Rect sourceBounds)
     {
-        warming = true; shell.IsEnabled = false; Topmost = false;
+        tailActive = false; warming = true; shell.IsEnabled = false; Topmost = false;
+        tailBackdrop.Fill = new VisualBrush(source) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = sourceBounds, Stretch = Stretch.Fill };
+        tailBackdrop.Opacity = 1; shell.Opacity = 0;
         PrepareAt(mainWindow, dockSide);
         if (!IsVisible) Show();
         PositionAtAnchor();
@@ -94,7 +112,7 @@ internal sealed partial class EdgeWindow : Window
     {
         anchor = mainWindow; side = dockSide;
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
-        warming = false; shell.IsEnabled = true; Topmost = true;
+        ClearTail(); warming = false; shell.IsEnabled = true; Topmost = true;
         PositionAtAnchor(); if (!IsVisible) Show(); PositionAtAnchor();
     }
     void PositionAtAnchor()
@@ -104,10 +122,10 @@ internal sealed partial class EdgeWindow : Window
         var horizontal = side is "top" or "bottom";
         var width = (int)Math.Round((horizontal ? 56 : 28) * scale);
         var height = (int)Math.Round((horizontal ? 28 : 56) * scale);
-        var x = horizontal ? bounds.Left + (bounds.Right - bounds.Left - width) / 2 : side == "left" ? bounds.Left : bounds.Right - width;
-        var y = horizontal ? side == "top" ? bounds.Top : bounds.Bottom - height : bounds.Top + (bounds.Bottom - bounds.Top - height) / 2;
+        var x = horizontal ? bounds.Left + (int)Math.Round((bounds.Right - bounds.Left - width) / 2d) : side == "left" ? bounds.Left : bounds.Right - width;
+        var y = horizontal ? side == "top" ? bounds.Top : bounds.Bottom - height : bounds.Top + (int)Math.Round((bounds.Bottom - bounds.Top - height) / 2d);
         EdgeHandle.ApplyDockSide(shell, side);
-        if (warming) Native.PositionDockBehind(handle, anchor, x, y, width, height);
+        if (warming && !tailActive) Native.PositionDockBehind(handle, anchor, x, y, width, height);
         else Native.PositionDockWindow(handle, x, y, width, height);
     }
 }

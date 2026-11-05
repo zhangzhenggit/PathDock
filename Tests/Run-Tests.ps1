@@ -3,6 +3,7 @@ $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
 $output=Join-Path $projectRoot 'artifacts\diagnostics'
 $results=Join-Path $projectRoot 'artifacts\test-results'
+$reports=@('self-test-results.json','integration-test-results.json','bridge-request-test-results.json')
 [void][IO.Directory]::CreateDirectory($results)
 Push-Location $projectRoot
 try {
@@ -16,10 +17,13 @@ try {
     if($LASTEXITCODE -ne 0){throw "$script failed."}
   }
   if(-not $SkipMotion){
+    $reports+=@('tail-test-results.json','motion-test-results.json')
+    $process=Start-Process -FilePath $exe -ArgumentList @('--tail-test',('"'+(Join-Path $results 'tail-test-results.json')+'"')) -Wait -PassThru -WindowStyle Normal
+    if($process.ExitCode -ne 0){throw 'Tail rendering tests failed.'}
     $process=Start-Process -FilePath $exe -ArgumentList @('--motion-test',('"'+(Join-Path $results 'motion-test-results.json')+'"')) -Wait -PassThru -WindowStyle Normal
     if($process.ExitCode -ne 0){throw 'Motion tests failed.'}
     $report=Get-Content (Join-Path $results 'motion-test-results.json') -Raw|ConvertFrom-Json
     if(-not $report.Passed){throw 'Motion assertions failed.'}
   }
-  Get-ChildItem $results -Filter '*-results.json' | ForEach-Object {$r=Get-Content $_.FullName -Raw|ConvertFrom-Json;[pscustomobject]@{Report=$_.Name;Passed=$r.Passed;Failed=$r.Failed}}
+  foreach($name in $reports){$r=Get-Content (Join-Path $results $name) -Raw|ConvertFrom-Json;[pscustomobject]@{Report=$name;Passed=$r.Passed;Failed=$r.Failed}}
 }finally{Pop-Location}

@@ -518,7 +518,7 @@ public sealed partial class MainWindow : Window
     {
         if (!collapsed && !animating) return;
         if (!animating) { folderScroll.ScrollToTop(); collapsed = false; Place(); }
-        StartTransition(true); Show(); edgeWindow?.Hide(); Native.KeepAbove(handle);
+        StartTransition(true); Show(); edgeWindow?.Hide(); edgeWindow?.ClearTail(); Native.KeepAbove(handle);
     }
     void StartTransition(bool expand, bool? animate = null)
     {
@@ -543,7 +543,7 @@ public sealed partial class MainWindow : Window
         // then uses an already-painted window rather than showing a fresh HWND.
         if (!expand)
         {
-            if (animate ?? SystemParameters.ClientAreaAnimation) EnsureEdgeWindow().WarmBehind(handle, store.State.Side);
+            if (animate ?? SystemParameters.ClientAreaAnimation) EnsureEdgeWindow().WarmBehind(handle, store.State.Side, host, EdgeSourceBounds());
             else EnsureEdgeWindow().PrepareAt(handle, store.State.Side);
         }
         transitionDurationMs = expand ? 220 : 240;
@@ -588,7 +588,7 @@ public sealed partial class MainWindow : Window
         surface.IsHitTestVisible = !collapsed;
         if (edgeButton != null) edgeButton.IsHitTestVisible = collapsed;
         Place(); // Place already positions and shows the collapsed edge window.
-        if (!collapsed) edgeWindow?.Hide();
+        if (!collapsed) { edgeWindow?.Hide(); edgeWindow?.ClearTail(); }
         if (!collapsed && !store.State.KeepOpen && !IsMouseOver) hideTimer.Start();
     }
     EdgeWindow EnsureEdgeWindow() => edgeWindow ??= new EdgeWindow(Expand,
@@ -598,6 +598,19 @@ public sealed partial class MainWindow : Window
         if (exiting || animating || !collapsed) return;
         EnsureEdgeWindow().ShowAt(handle, store.State.Side);
         Hide();
+        // Restore the retained main HWND only after it is no longer visible.
+        UpdateDockRegion();
+    }
+    Rect EdgeSourceBounds()
+    {
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var horizontal = store.State.Side is "top" or "bottom";
+        var w = Math.Round((horizontal ? 56 : 28) * dpi.DpiScaleX);
+        var h = Math.Round((horizontal ? 28 : 56) * dpi.DpiScaleY);
+        var bounds = Native.WindowBounds(handle);
+        var x = horizontal ? Math.Round((bounds.Right - bounds.Left - w) / 2d) : store.State.Side == "left" ? 0 : bounds.Right - bounds.Left - w;
+        var y = horizontal ? store.State.Side == "top" ? 0 : bounds.Bottom - bounds.Top - h : Math.Round((bounds.Bottom - bounds.Top - h) / 2d);
+        return new Rect(x / dpi.DpiScaleX, y / dpi.DpiScaleY, w / dpi.DpiScaleX, h / dpi.DpiScaleY);
     }
     void UpdateDockRegion()
     {
@@ -618,11 +631,13 @@ public sealed partial class MainWindow : Window
             EdgeHandle.ApplyDockSide(edgePresentation, store.State.Side);
             edgeButton.HorizontalAlignment = horizontal ? HorizontalAlignment.Center : store.State.Side == "left" ? HorizontalAlignment.Left : HorizontalAlignment.Right;
             edgeButton.VerticalAlignment = horizontal ? store.State.Side == "top" ? VerticalAlignment.Top : VerticalAlignment.Bottom : VerticalAlignment.Center;
-            edgeButton.Opacity = edgeReveal;
+            edgeButton.Opacity = collapsed && edgeWindow?.HasRenderedContent == true && (animating || edgeWindow.TailActive) ? 0 : edgeReveal;
+            if (collapsed && animating) edgeWindow?.SetTailMix(edgeReveal, EdgeSourceBounds());
         }
         Native.SetVisibleRegion(handle, (int)Math.Round(x * dpi.DpiScaleX), (int)Math.Round(y * dpi.DpiScaleY),
             (int)Math.Ceiling(visibleWidth * dpi.DpiScaleX), (int)Math.Ceiling(visibleHeight * dpi.DpiScaleY),
-            (int)Math.Round((collapsed ? 8 + 12 * edgeReveal : 8) * dpi.DpiScaleX));
+            (int)Math.Round((collapsed ? 8 + 12 * edgeReveal : 8) * dpi.DpiScaleX),
+            collapsed && edgeWindow?.TailActive == true ? EdgeSourceBounds() : null, dpi.DpiScaleX);
     }
     void Place()
     {

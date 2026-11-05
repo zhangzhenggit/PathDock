@@ -81,10 +81,17 @@ internal static partial class Native
     [DllImport("gdi32.dll")] static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
     [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr window, IntPtr region, bool redraw);
-    public static void SetVisibleRegion(IntPtr window, int x, int y, int width, int height, int radius)
+    [DllImport("gdi32.dll", EntryPoint = "CreateRectRgn")] static extern IntPtr CreateDockCutoutRgn(int left, int top, int right, int bottom);
+    [DllImport("gdi32.dll")] static extern int CombineRgn(IntPtr dest, IntPtr a, IntPtr b, int mode);
+    public static void SetVisibleRegion(IntPtr window, int x, int y, int width, int height, int radius, Rect? cutout = null, double scale = 1)
     {
         var region = CreateRoundRectRgn(x, y, x + Math.Max(1, width) + 1, y + Math.Max(1, height) + 1, radius, radius);
         if (region == IntPtr.Zero) return;
+        if (cutout is Rect hole)
+        {
+            var excluded = CreateDockCutoutRgn((int)Math.Round(hole.Left * scale), (int)Math.Round(hole.Top * scale), (int)Math.Round(hole.Right * scale), (int)Math.Round(hole.Bottom * scale));
+            if (excluded != IntPtr.Zero) { CombineRgn(region, region, excluded, 4); DeleteObject(excluded); }
+        }
         if (SetWindowRgn(window, region, false) == 0) DeleteObject(region);
     }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct SHELLFILEINFO { public IntPtr Icon; public int IconIndex; public uint Attributes; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string DisplayName; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)] public string TypeName; }
