@@ -27,7 +27,7 @@ public sealed partial class MainWindow : Window
     readonly Stopwatch slideClock = new();
     Button? edgeButton;
     EdgeWindow? edgeWindow;
-    bool animating, draggingPanel, floatingTransition;
+    bool animating, draggingPanel, floatingTransition, waitingForFirstRender;
     Point dockPosition, floatingPosition;
     double reveal = 1, transitionFrom = 1, transitionTo = 1;
     int motionFrames;
@@ -53,7 +53,7 @@ public sealed partial class MainWindow : Window
     bool initialized, renderPending;
     IntPtr previousForeground;
     const double PanelWidth = 300;
-    double transitionDurationMs = 180;
+    double transitionDurationMs = 220;
     double desiredHeight = 300;
     readonly ScrollViewer folderScroll = new();
 
@@ -540,13 +540,15 @@ public sealed partial class MainWindow : Window
         // Prepare the hidden edge HWND and destination DPI before the timed motion,
         // rather than paying that one-time cost during the final rendering callback.
         if (!expand) EnsureEdgeWindow().PrepareAt(handle, store.State.Side);
-        transitionDurationMs = expand ? 180 : 240;
+        transitionDurationMs = expand ? 220 : 240;
         CompositionTarget.Rendering -= AnimateDock;
         if (!(animate ?? SystemParameters.ClientAreaAnimation))
         {
             reveal = destination; CompleteTransition(); return;
         }
-        animating = true; slideClock.Restart();
+        animating = true; waitingForFirstRender = expand && !IsVisible;
+        // Showing a hidden HWND must not consume the visible animation's time.
+        if (waitingForFirstRender) slideClock.Reset(); else slideClock.Restart();
         PositionTransition(); UpdateDockRegion();
         CompositionTarget.Rendering += AnimateDock;
     }
@@ -558,13 +560,13 @@ public sealed partial class MainWindow : Window
         var y = dockPosition.Y + (floatingPosition.Y - dockPosition.Y) * reveal;
         Native.PositionDockWindow(handle, (int)Math.Round(x), (int)Math.Round(y), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
     }
-    internal static double DockEasing(bool expand, double progress) => expand
-        ? 1 - Math.Pow(1 - progress, 3)
-        : progress * progress * (3 - 2 * progress);
+    internal static double DockEasing(double progress) => progress * progress * (3 - 2 * progress);
     void AnimateDock(object? sender, EventArgs e)
     {
-        var progress = Math.Clamp(slideClock.Elapsed.TotalMilliseconds / transitionDurationMs, 0, 1);
-        var eased = DockEasing(!collapsed, progress);
+        var firstFrame = waitingForFirstRender;
+        if (firstFrame) { waitingForFirstRender = false; slideClock.Restart(); }
+        var progress = firstFrame ? 0 : Math.Clamp(slideClock.Elapsed.TotalMilliseconds / transitionDurationMs, 0, 1);
+        var eased = DockEasing(progress);
         reveal = transitionFrom + (transitionTo - transitionFrom) * eased;
         motionFrames++;
         PositionTransition(); UpdateDockRegion();
@@ -573,7 +575,7 @@ public sealed partial class MainWindow : Window
     }
     void CompleteTransition()
     {
-        animating = false;
+        animating = false; waitingForFirstRender = false;
         CompositionTarget.Rendering -= AnimateDock; slideClock.Stop();
         surface.IsHitTestVisible = !collapsed;
         if (edgeButton != null) edgeButton.IsHitTestVisible = collapsed;
