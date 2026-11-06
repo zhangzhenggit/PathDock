@@ -42,11 +42,16 @@ public sealed partial class MainWindow
                 var actual = Native.WindowBounds(new WindowInteropHelper(edge).Handle);
                 coordinatesCorrect &= actual.Left == anchor.Left + (int)Math.Round(box.X * dpi.DpiScaleX)
                     && actual.Top == anchor.Top + (int)Math.Round(box.Y * dpi.DpiScaleY);
-                samples.Add(new { Screen = screen.DeviceName, Side = side, Scale = dpi.DpiScaleX, Mix = mix, CornerAlpha = alpha });
+                samples.Add(new { Screen = screen.DeviceName, Side = side, Scale = dpi.DpiScaleX, Mix = mix, CornerAlpha = alpha,
+                    EdgeRendered = edge.HasRenderedContent, edge.TailActive,
+                    CutoutExcluded = mix == 0 || Native.RegionExcludes(handle,
+                        (int)Math.Round((box.Left + box.Width / 2) * dpi.DpiScaleX),
+                        (int)Math.Round((box.Top + box.Height / 2) * dpi.DpiScaleY)) });
                 if (mix == 1) {
                     final = image.Pixels;
                     var region = Native.DockRegionState(handle);
                     cutoutCorrect &= region.Width == 0 && region.Height == 0;
+                    samples.Add(new { Screen = screen.DeviceName, Side = side, RegionWidth = region.Width, RegionHeight = region.Height });
                 }
             }
             animating = false; ShowEdgeWindow(); await Task.Delay(40);

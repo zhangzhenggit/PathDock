@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
     Button? edgeButton;
     readonly Border edgePresentation = new();
     EdgeWindow? edgeWindow;
+    DialogFollow? dialogFollow;
     bool animating, draggingPanel, floatingTransition, waitingForFirstRender;
     Point dockPosition, floatingPosition;
     double reveal = 1, transitionFrom = 1, transitionTo = 1;
@@ -82,6 +83,7 @@ public sealed partial class MainWindow : Window
         {
             if (initialized) return; initialized = true;
             Place(); CreateTray(); targetTimer.Start(); recentTimer.Start(); Render();
+            if (!preview && store.State.FollowFileDialogs) { try { SetDialogFollow(true); } catch (Exception ex) { Toast(ex.Message, true); } }
             if (collapsed) ShowEdgeWindow();
             if (store.RecoveryNotice != null) Toast(store.RecoveryNotice);
             if (!preview) await CollectRecent();
@@ -96,7 +98,7 @@ public sealed partial class MainWindow : Window
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Collapse(); e.Handled = true; } };
         AllowDrop = true; DragOver += DragOverFolder; Drop += DropFolder;
         SizeChanged += (_, _) => { if (handle != IntPtr.Zero) { UpdateDockRegion(); if (collapsed && !animating) ShowEdgeWindow(); } };
-        Closing += (_, _) => { exiting = true; edgeWindow?.Close(); CompositionTarget.Rendering -= AnimateDock; targetTimer.Stop(); recentTimer.Stop(); hideTimer.Stop(); toastTimer.Stop(); Native.UnregisterHotKey(handle, 1); source?.RemoveHook(WindowMessage); tray?.ContextMenuStrip?.Dispose(); tray?.Icon?.Dispose(); tray?.Dispose(); store.Save(); };
+        Closing += (_, _) => { exiting = true; dialogFollow?.Dispose(); edgeWindow?.Close(); CompositionTarget.Rendering -= AnimateDock; targetTimer.Stop(); recentTimer.Stop(); hideTimer.Stop(); toastTimer.Stop(); Native.UnregisterHotKey(handle, 1); source?.RemoveHook(WindowMessage); tray?.ContextMenuStrip?.Dispose(); tray?.Icon?.Dispose(); tray?.Dispose(); store.Save(); };
     }
     IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wp, IntPtr lp, ref bool handled)
     {
@@ -451,6 +453,11 @@ public sealed partial class MainWindow : Window
         try { dialog.ShowDialog(); } finally { dialogOpen = false; Native.NoActivate(this, true); Render(); }
         await Task.CompletedTask;
     }
+    void SetDialogFollow(bool enabled)
+    {
+        if (enabled) dialogFollow ??= new DialogFollow(action => Dispatcher.BeginInvoke(action));
+        else { dialogFollow?.Dispose(); dialogFollow = null; }
+    }
     void ShowSettings() => WithDialog(() => CreateSettingsDialog().ShowDialog());
     internal DockDialog CreateSettingsDialog()
     {
@@ -472,6 +479,20 @@ public sealed partial class MainWindow : Window
         dialog.Body.Children.Add(startup);
         Toggle("记录最近目录", store.State.RecordRecent, v => store.State.RecordRecent = v);
         Toggle("从资源管理器发现目录", store.State.TrackExplorer, v => store.State.TrackExplorer = v);
+        var follow = new CheckBox { Content = "文件对话框跟随资源管理器", IsChecked = store.State.FollowFileDialogs, IsEnabled = !preview,
+            Margin = new Thickness(0, 5, 0, 9), FontSize = Ui.ExplorerFontSize,
+            ToolTip = "从文件对话框切换到资源管理器，再返回时，自动进入刚刚浏览的目录。适用于支持的 Windows 标准文件对话框。" };
+        follow.Click += (_, _) => {
+            var previous = store.State.FollowFileDialogs;
+            try { SetDialogFollow(follow.IsChecked == true); store.State.FollowFileDialogs = follow.IsChecked == true; store.Save(); }
+            catch (Exception ex) {
+                store.State.FollowFileDialogs = previous;
+                SetDialogFollow(previous);
+                follow.IsChecked = previous;
+                Ui.Message(dialog, ex.Message);
+            }
+        };
+        dialog.Body.Children.Add(follow);
         var side = new ComboBox { ItemsSource = new[] { "右侧停靠", "左侧停靠", "顶部停靠", "底部停靠" }, SelectedIndex = Array.IndexOf(new[] { "right", "left", "top", "bottom" }, store.State.Side), Margin = new Thickness(0, 8, 0, 12), Padding = new Thickness(5) };
         side.SelectionChanged += (_, _) => { store.State.FloatingPanel = false; store.State.Side = new[] { "right", "left", "top", "bottom" }[Math.Max(0, side.SelectedIndex)]; store.Save(); Place(); }; dialog.Body.Children.Add(side);
         var installed = File.Exists(Path.Combine(store.Root, "integration.json"));
@@ -633,6 +654,11 @@ public sealed partial class MainWindow : Window
             edgeButton.VerticalAlignment = horizontal ? store.State.Side == "top" ? VerticalAlignment.Top : VerticalAlignment.Bottom : VerticalAlignment.Center;
             edgeButton.Opacity = collapsed && edgeWindow?.HasRenderedContent == true && (animating || edgeWindow.TailActive) ? 0 : edgeReveal;
             if (collapsed && animating) edgeWindow?.SetTailMix(edgeReveal, EdgeSourceBounds());
+        }
+        if (collapsed && reveal == 0 && edgeWindow?.TailActive == true)
+        {
+            Native.SetEmptyVisibleRegion(handle);
+            return;
         }
         Native.SetVisibleRegion(handle, (int)Math.Round(x * dpi.DpiScaleX), (int)Math.Round(y * dpi.DpiScaleY),
             (int)Math.Ceiling(visibleWidth * dpi.DpiScaleX), (int)Math.Ceiling(visibleHeight * dpi.DpiScaleY),

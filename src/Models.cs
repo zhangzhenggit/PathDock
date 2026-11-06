@@ -24,6 +24,7 @@ public sealed class DockState
     public bool KeepOpen { get; set; }
     public bool TrackExplorer { get; set; } = true;
     public bool RecordRecent { get; set; } = true;
+    public bool FollowFileDialogs { get; set; }
     public string Side { get; set; } = "right";
     public string ActionMode { get; set; } = "auto";
     public double ScreenX { get; set; }

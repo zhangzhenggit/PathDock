@@ -83,6 +83,11 @@ internal static partial class Native
     [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr window, IntPtr region, bool redraw);
     [DllImport("gdi32.dll", EntryPoint = "CreateRectRgn")] static extern IntPtr CreateDockCutoutRgn(int left, int top, int right, int bottom);
     [DllImport("gdi32.dll")] static extern int CombineRgn(IntPtr dest, IntPtr a, IntPtr b, int mode);
+    public static void SetEmptyVisibleRegion(IntPtr window)
+    {
+        var region = CreateDockCutoutRgn(0, 0, 0, 0);
+        if (region != IntPtr.Zero && SetWindowRgn(window, region, false) == 0) DeleteObject(region);
+    }
     public static void SetVisibleRegion(IntPtr window, int x, int y, int width, int height, int radius, Rect? cutout = null, double scale = 1)
     {
         var region = CreateRoundRectRgn(x, y, x + Math.Max(1, width) + 1, y + Math.Max(1, height) + 1, radius, radius);

@@ -17,6 +17,7 @@ internal static class SelfTest
         try
         {
             Directory.CreateDirectory(root);
+            DialogFollowChecks.Run(Test, Require, root);
             Test("Dock easing starts gently and finishes without overshoot", () => {
                 Require(MainWindow.DockEasing(0) == 0 && MainWindow.DockEasing(1) == 1);
                 Require(MainWindow.DockEasing(.25) < .2 && MainWindow.DockEasing(.75) > .8);
