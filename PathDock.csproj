@@ -8,7 +8,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>enable</Nullable>
     <AssemblyName>PathDock</AssemblyName>
-    <Version>0.3.15</Version>
+    <Version>0.3.16</Version>
     <Description>Windows desktop folder shortcuts and edge dock</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\PathDock.ico</ApplicationIcon>
@@ -21,5 +21,5 @@
   <ItemGroup><Compile Include="src\**\*.cs" /></ItemGroup>
   <ItemGroup Condition="'$(PathDockDiagnostics)' == 'true'"><Compile Include="Tests\**\*.cs" /></ItemGroup>
   <ItemGroup><None Update="Integration\*.ps1" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
-  <ItemGroup><Resource Include="Assets\PathDock.png" /><EmbeddedResource Include="Assets\PathDock.ico" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets\PathDock.png" /><EmbeddedResource Include="Assets\PathDock.Tray.ico" /></ItemGroup>
 </Project>

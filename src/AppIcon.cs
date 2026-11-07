@@ -36,8 +36,8 @@ internal static class AppIcon
     }
     public static System.Drawing.Icon TrayIcon()
     {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("PathDock.Assets.PathDock.ico") ?? throw new FileNotFoundException("Application icon missing.");
-        using var icon = new System.Drawing.Icon(stream, 16, 16);
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("PathDock.Assets.PathDock.Tray.ico") ?? throw new FileNotFoundException("Tray icon missing.");
+        using var icon = new System.Drawing.Icon(stream, System.Windows.Forms.SystemInformation.SmallIconSize);
         return (System.Drawing.Icon)icon.Clone();
     }
 }

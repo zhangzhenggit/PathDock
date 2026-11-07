@@ -131,7 +131,6 @@ public sealed partial class MainWindow : Window
         header.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1 || IsTitleButton(e.OriginalSource as DependencyObject)) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; SavePanelPosition(); } e.Handled = true; };
         header.Children.Add(brand);
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
-        var add = Ui.IconButton("\uE710", "添加文件夹"); add.Click += (_, _) => AddFolder(); tools.Children.Add(add);
         pin = Ui.IconButton("\uE718", "固定面板"); UpdatePin();
         pin.Click += (_, _) => { store.State.KeepOpen = !store.State.KeepOpen; store.Save(); UpdatePin(); };
         tools.Children.Add(pin);
@@ -145,9 +144,6 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(folderScroll, 1); layout.Children.Add(folderScroll);
         status.Text = ""; status.Visibility = Visibility.Collapsed; status.TextWrapping = TextWrapping.Wrap; status.Margin = new Thickness(5, 5, 5, 2);
         Grid.SetRow(status, 2); layout.Children.Add(status);
-        var panelMenu = NewMenu();
-        AddAction(panelMenu, "添加文件夹…", () => { AddFolder(); return Task.CompletedTask; });
-        AddAction(panelMenu, "导入…", ShowImport); layout.ContextMenu = panelMenu;
     }
     static bool IsTitleButton(DependencyObject? source)
     {
@@ -161,7 +157,6 @@ public sealed partial class MainWindow : Window
     void ShowPanelMenu(FrameworkElement anchor)
     {
         var menu = NewMenu();
-        AddAction(menu, "导入文件夹…", ShowImport);
         AddAction(menu, "点击行为…", () => { ShowModeMenu(anchor); return Task.CompletedTask; });
         menu.Items.Add(new Separator());
         AddAction(menu, "设置…", () => { ShowSettings(); return Task.CompletedTask; });
@@ -409,15 +404,6 @@ public sealed partial class MainWindow : Window
         dialogOpen = true; hideTimer.Stop(); EnableEditing();
         try { show(); } finally { dialogOpen = false; Native.NoActivate(this, true); Render(); }
     }
-    void AddFolder()
-    {
-        WithDialog(() =>
-        {
-            var picker = new Microsoft.Win32.OpenFolderDialog { Title = "选择要固定的目录", Multiselect = true };
-            if (picker.ShowDialog(this) != true) return;
-            using (store.BatchUpdates()) foreach (var path in picker.FolderNames) store.AddPinned(path); Toast("已添加到固定收藏");
-        });
-    }
     void EditFolder(FolderEntry item)
     {
         WithDialog(() =>
@@ -427,31 +413,6 @@ public sealed partial class MainWindow : Window
             dialog.Body.Children.Add(Ui.Text("完整路径", 12, Ui.Muted)); var path = Ui.Input(item.Path); path.Margin = new Thickness(0, 7, 0, 20); dialog.Body.Children.Add(path);
             var save = Ui.Button("保存修改", true); save.Click += (_, _) => { try { var normalized = DockStore.Normalize(path.Text); if (store.State.Folders.Any(f => f.Id != item.Id && string.Equals(f.Path, normalized, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("这个目录已经在列表中。"); item.Path = normalized; item.Name = string.IsNullOrWhiteSpace(name.Text) ? DockStore.DefaultName(normalized) : name.Text.Trim(); store.Save(); dialog.Close(); } catch (Exception ex) { Ui.Message(dialog, ex.Message); } }; dialog.Body.Children.Add(save); dialog.ShowDialog();
         });
-    }
-    async Task ShowImport()
-    {
-        dialogOpen = true; EnableEditing(); hideTimer.Stop();
-        var dialog = new DockDialog(this, "导入文件夹", "", 480, 520);
-        var loading = Ui.Text("正在读取本机目录…", 12, Ui.Muted); dialog.Body.Children.Add(loading);
-        dialog.Loaded += async (_, _) =>
-        {
-            try
-            {
-                var candidates = await Services.ImportCandidates(); if (!dialog.IsVisible) return; dialog.Body.Children.Clear();
-                var choices = new List<(CheckBox Box, ImportCandidate Candidate)>();
-                foreach (var item in candidates)
-                {
-                    var text = new StackPanel(); text.Children.Add(Ui.Text(DockStore.DefaultName(item.Path), 13, bold: true)); var detail = Ui.Text(item.Path + "\n" + item.Source, 10, Ui.Muted); detail.TextWrapping = TextWrapping.Wrap; detail.Margin = new Thickness(0, 4, 0, 0); text.Children.Add(detail);
-                    var box = new CheckBox { Content = text, Margin = new Thickness(0, 6, 0, 6), VerticalContentAlignment = VerticalAlignment.Center, IsChecked = false, IsEnabled = !store.State.Folders.Any(f => f.Pinned && string.Equals(f.Path, item.Path, StringComparison.OrdinalIgnoreCase)) };
-                    if (!box.IsEnabled) box.ToolTip = "已在固定收藏中"; choices.Add((box, item)); dialog.Body.Children.Add(box);
-                }
-                if (choices.Count == 0) dialog.Body.Children.Add(Ui.Text("没有可导入的目录，可直接添加文件夹。", 12, Ui.Muted));
-                var add = Ui.Button("添加所选目录", true); add.Margin = new Thickness(0, 18, 0, 8); add.Click += (_, _) => { var selected = choices.Where(c => c.Box.IsChecked == true).ToList(); using (store.BatchUpdates()) foreach (var c in selected) store.AddPinned(c.Candidate.Path); dialog.Close(); Toast($"已添加 {selected.Count} 个目录"); }; dialog.Body.Children.Add(add);
-            }
-            catch (Exception ex) { loading.Text = "读取失败：" + ex.Message; loading.TextWrapping = TextWrapping.Wrap; }
-        };
-        try { dialog.ShowDialog(); } finally { dialogOpen = false; Native.NoActivate(this, true); Render(); }
-        await Task.CompletedTask;
     }
     void SetDialogFollow(bool enabled)
     {
@@ -470,13 +431,6 @@ public sealed partial class MainWindow : Window
             box.Click += (_, _) => { apply(box.IsChecked == true); store.Save(); }; dialog.Body.Children.Add(box);
         }
         Toggle("固定面板", store.State.KeepOpen, v => { store.State.KeepOpen = v; UpdatePin(); });
-        var startup = new CheckBox { Content = "开机时启动 PathDock", IsChecked = StartupRegistration.IsEnabled, IsEnabled = !preview, Margin = new Thickness(0, 5, 0, 9), FontSize = Ui.ExplorerFontSize, ToolTip = "登录当前 Windows 账户时启动。" };
-        startup.Click += (_, _) =>
-        {
-            try { StartupRegistration.SetEnabled(startup.IsChecked == true); }
-            catch (Exception ex) { startup.IsChecked = StartupRegistration.IsEnabled; Ui.Message(dialog, ex.Message); }
-        };
-        dialog.Body.Children.Add(startup);
         Toggle("记录最近目录", store.State.RecordRecent, v => store.State.RecordRecent = v);
         Toggle("从资源管理器发现目录", store.State.TrackExplorer, v => store.State.TrackExplorer = v);
         var follow = new CheckBox { Content = "文件对话框跟随资源管理器", IsChecked = store.State.FollowFileDialogs, IsEnabled = !preview,
@@ -715,6 +669,30 @@ public sealed partial class MainWindow : Window
     {
         var icon = AppIcon.TrayIcon();
         tray = new Forms.NotifyIcon { Icon = icon, Text = "PathDock", Visible = true };
-        var menu = new Forms.ContextMenuStrip(); menu.Items.Add("设置", null, (_, _) => Dispatcher.Invoke(() => { Expand(); ShowSettings(); })); menu.Items.Add(new Forms.ToolStripSeparator()); menu.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(Close)); tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Dispatcher.Invoke(Expand);
+        var menu = new Forms.ContextMenuStrip
+        {
+            Renderer = new TrayMenuRenderer(),
+            Font = System.Drawing.SystemFonts.MenuFont,
+            ForeColor = System.Drawing.Color.FromArgb(32, 32, 32),
+            Padding = new Forms.Padding(3, 5, 3, 5),
+            ShowImageMargin = false,
+            ShowCheckMargin = true
+        };
+        var startup = new Forms.ToolStripMenuItem("开机自启") { Enabled = !preview };
+        menu.Opening += (_, _) => startup.Checked = StartupRegistration.IsEnabled;
+        startup.Click += (_, _) => Dispatcher.Invoke(() =>
+        {
+            try { StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled); }
+            catch (Exception ex) { Ui.Message(this, ex.Message); }
+            finally { startup.Checked = StartupRegistration.IsEnabled; }
+        });
+        menu.Items.Add(startup);
+        menu.Items.Add("设置", null, (_, _) => Dispatcher.Invoke(() => { Expand(); ShowSettings(); }));
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(Close));
+        foreach (Forms.ToolStripItem item in menu.Items)
+            if (item is Forms.ToolStripMenuItem) item.Padding = new Forms.Padding(5, 7, 18, 7);
+        tray.ContextMenuStrip = menu;
+        tray.DoubleClick += (_, _) => Dispatcher.Invoke(Expand);
     }
 }

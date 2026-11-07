@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 
 namespace PathDock;
 
-public sealed record ImportCandidate(string Path, string Source);
 public sealed class ShellSession
 {
     public string Id { get; set; } = "";
@@ -40,42 +39,6 @@ internal static class Services
         var text = await output; var error = await errors;
         if (process.ExitCode != 0) throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "PowerShell 操作失败。" : error.Trim());
         return text;
-    }
-    public static Task<List<ImportCandidate>> QuickAccess() => Sta(() =>
-    {
-        var result = new List<ImportCandidate>(); object? shell = null; object? folder = null; object? items = null;
-        try
-        {
-            shell = Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application")!);
-            folder = ((dynamic)shell!).NameSpace("shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}");
-            if (folder != null) items = ((dynamic)folder).Items();
-            if (items != null) foreach (dynamic item in (dynamic)items)
-                {
-                    try { if ((bool)item.IsFolder && (bool)item.IsFileSystem) result.Add(new((string)item.Path, "快速访问")); }
-                    finally { Marshal.ReleaseComObject(item); }
-                }
-        }
-        catch { /* Quick Access is an optional source. */ }
-        finally { if (items != null) Marshal.ReleaseComObject(items); if (folder != null) Marshal.ReleaseComObject(folder); if (shell != null) Marshal.ReleaseComObject(shell); }
-        return result;
-    });
-    public static async Task<List<ImportCandidate>> ImportCandidates()
-    {
-        var quickTask = QuickAccess();
-        var historyPaths = new List<string>();
-        try
-        {
-            var history = await RunPowerShell(Path.Combine(AppContext.BaseDirectory, "Integration", "history.ps1"));
-            historyPaths = JsonSerializer.Deserialize<List<string>>(history.Trim(), Json) ?? new();
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or TimeoutException or JsonException) { /* Quick Access remains usable without PowerShell history. */ }
-        List<ImportCandidate> quick;
-        try { quick = await quickTask.WaitAsync(TimeSpan.FromSeconds(3)); } catch (TimeoutException) { quick = new(); }
-        return quick.Concat(historyPaths.Select(p => new ImportCandidate(p, "命令历史")))
-            .Where(p => !p.Path.StartsWith("\\\\"))
-            .GroupBy(p => DockStore.Normalize(p.Path), StringComparer.OrdinalIgnoreCase)
-            .Select(g => new ImportCandidate(g.Key, string.Join(" · ", g.Select(x => x.Source).Distinct())))
-            .OrderBy(p => DockStore.DefaultName(p.Path), StringComparer.CurrentCultureIgnoreCase).ToList();
     }
     public static Task<List<string>> ExplorerFolders() => Sta(() =>
     {
