@@ -29,6 +29,7 @@ public sealed partial class MainWindow : Window
     readonly Border edgePresentation = new();
     EdgeWindow? edgeWindow;
     DialogFollow? dialogFollow;
+    OutsideClickMonitor? outsideClickMonitor;
     bool animating, draggingPanel, floatingTransition, waitingForFirstRender;
     Point dockPosition, floatingPosition;
     double reveal = 1, transitionFrom = 1, transitionTo = 1;
@@ -39,7 +40,7 @@ public sealed partial class MainWindow : Window
 
     readonly DispatcherTimer targetTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     readonly DispatcherTimer recentTimer = new() { Interval = TimeSpan.FromSeconds(3) };
-    readonly DispatcherTimer hideTimer = new() { Interval = TimeSpan.FromMilliseconds(900) };
+    readonly DispatcherTimer hideTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     readonly Dictionary<string, DateTime> activitySeen = new();
     HashSet<string> explorerSeen = new(StringComparer.OrdinalIgnoreCase);
@@ -83,6 +84,8 @@ public sealed partial class MainWindow : Window
         {
             if (initialized) return; initialized = true;
             Place(); CreateTray(); targetTimer.Start(); recentTimer.Start(); Render();
+            if (!preview) outsideClickMonitor = new OutsideClickMonitor(OutsideClick);
+            if (!collapsed) RestartHideTimer();
             if (!preview && store.State.FollowFileDialogs) { try { SetDialogFollow(true); } catch (Exception ex) { Toast(ex.Message, true); } }
             if (collapsed) ShowEdgeWindow();
             if (store.RecoveryNotice != null) Toast(store.RecoveryNotice);
@@ -90,15 +93,28 @@ public sealed partial class MainWindow : Window
         };
         targetTimer.Tick += (_, _) => { TrackTarget(); TryRenderPending(); };
         recentTimer.Tick += async (_, _) => { if (!preview) await CollectRecent(); };
-        hideTimer.Tick += (_, _) => { hideTimer.Stop(); if (!store.State.KeepOpen && !IsMouseOver && !dialogOpen && menuDepth == 0) Collapse(); };
+        hideTimer.Tick += (_, _) => { hideTimer.Stop(); if (!store.State.KeepOpen && !dialogOpen && menuDepth == 0 && !draggingPanel) Collapse(); };
         toastTimer.Tick += (_, _) => { toastTimer.Stop(); status.Text = ""; status.Visibility = Visibility.Collapsed; };
-        MouseEnter += (_, _) => hideTimer.Stop();
-        MouseLeave += (_, _) => { if (!collapsed && !animating) hideTimer.Start(); };
-        Deactivated += (_, _) => { Native.NoActivate(this, true); Keyboard.ClearFocus(); if (!collapsed && !store.State.KeepOpen) hideTimer.Start(); };
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Collapse(); e.Handled = true; } };
+        MouseMove += (_, _) => RestartHideTimer();
+        PreviewMouseDown += (_, _) => RestartHideTimer();
+        PreviewMouseWheel += (_, _) => RestartHideTimer();
+        Deactivated += (_, _) => { Native.NoActivate(this, true); Keyboard.ClearFocus(); };
+        PreviewKeyDown += (_, e) => { RestartHideTimer(); if (e.Key == Key.Escape) { Collapse(); e.Handled = true; } };
         AllowDrop = true; DragOver += DragOverFolder; Drop += DropFolder;
         SizeChanged += (_, _) => { if (handle != IntPtr.Zero) { UpdateDockRegion(); if (collapsed && !animating) ShowEdgeWindow(); } };
-        Closing += (_, _) => { exiting = true; dialogFollow?.Dispose(); edgeWindow?.Close(); CompositionTarget.Rendering -= AnimateDock; targetTimer.Stop(); recentTimer.Stop(); hideTimer.Stop(); toastTimer.Stop(); Native.UnregisterHotKey(handle, 1); source?.RemoveHook(WindowMessage); tray?.ContextMenuStrip?.Dispose(); tray?.Icon?.Dispose(); tray?.Dispose(); store.Save(); };
+        Closing += (_, _) => { exiting = true; outsideClickMonitor?.Dispose(); dialogFollow?.Dispose(); edgeWindow?.Close(); CompositionTarget.Rendering -= AnimateDock; targetTimer.Stop(); recentTimer.Stop(); hideTimer.Stop(); toastTimer.Stop(); Native.UnregisterHotKey(handle, 1); source?.RemoveHook(WindowMessage); tray?.ContextMenuStrip?.Dispose(); tray?.Icon?.Dispose(); tray?.Dispose(); store.Save(); };
+    }
+    void RestartHideTimer()
+    {
+        hideTimer.Stop();
+        if (!collapsed && !animating && !store.State.KeepOpen && !dialogOpen && menuDepth == 0 && !draggingPanel) hideTimer.Start();
+    }
+    void OutsideClick(int x, int y)
+    {
+        if (collapsed || animating || store.State.KeepOpen || dialogOpen || menuDepth > 0 || draggingPanel || handle == IntPtr.Zero) return;
+        var bounds = Native.WindowBounds(handle);
+        if (x >= bounds.Left && x < bounds.Right && y >= bounds.Top && y < bounds.Bottom) return;
+        Dispatcher.BeginInvoke(new Action(() => { if (!store.State.KeepOpen && !dialogOpen && menuDepth == 0) Collapse(); }));
     }
     IntPtr WindowMessage(IntPtr hwnd, int message, IntPtr wp, IntPtr lp, ref bool handled)
     {
@@ -128,11 +144,11 @@ public sealed partial class MainWindow : Window
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(7, 0, 0, 0) };
         brand.Children.Add(new Image { Source = AppIcon.Image, Width = 16, Height = 16, Margin = new Thickness(5, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
         brand.Children.Add(Ui.Text("PathDock", Ui.ExplorerFontSize));
-        header.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1 || IsTitleButton(e.OriginalSource as DependencyObject)) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; SavePanelPosition(); } e.Handled = true; };
+        header.MouseLeftButtonDown += (_, e) => { if (e.ClickCount != 1 || IsTitleButton(e.OriginalSource as DependencyObject)) return; try { draggingPanel = true; hideTimer.Stop(); DragMove(); } catch (InvalidOperationException) { } finally { draggingPanel = false; SavePanelPosition(); RestartHideTimer(); } e.Handled = true; };
         header.Children.Add(brand);
         var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
         pin = Ui.IconButton("\uE718", "固定面板"); UpdatePin();
-        pin.Click += (_, _) => { store.State.KeepOpen = !store.State.KeepOpen; store.Save(); UpdatePin(); };
+        pin.Click += (_, _) => { store.State.KeepOpen = !store.State.KeepOpen; store.Save(); UpdatePin(); RestartHideTimer(); };
         tools.Children.Add(pin);
         var more = Ui.IconButton("\uE712", "更多"); more.Click += (_, _) => ShowPanelMenu(more); tools.Children.Add(more);
         Grid.SetColumn(tools, 1); header.Children.Add(tools); layout.Children.Add(header);
@@ -276,7 +292,7 @@ public sealed partial class MainWindow : Window
     {
         var menu = new ContextMenu { FontFamily = FontFamily, FontSize = 12, Padding = new Thickness(5) };
         menu.Opened += (_, _) => { openMenus.RemoveWhere(m => !m.IsOpen); openMenus.Add(menu); menuDepth = openMenus.Count; hideTimer.Stop(); };
-        menu.Closed += (_, _) => { openMenus.RemoveWhere(m => !m.IsOpen); menuDepth = openMenus.Count; if (!IsMouseOver) hideTimer.Start(); };
+        menu.Closed += (_, _) => { openMenus.RemoveWhere(m => !m.IsOpen); menuDepth = openMenus.Count; RestartHideTimer(); };
         return menu;
     }
     void OpenMenu(ContextMenu menu, FrameworkElement anchor) { menu.PlacementTarget = anchor; menu.IsOpen = true; }
@@ -369,7 +385,7 @@ public sealed partial class MainWindow : Window
         try
         {
             var discovered = new List<string>();
-            if (store.State.RecordRecent && store.State.TrackExplorer)
+            if (store.State.RecordRecent)
             {
                 if (explorerRead == null || explorerRead.IsCompleted) explorerRead = Services.ExplorerFolders();
                 var folders = await explorerRead.WaitAsync(TimeSpan.FromSeconds(2));
@@ -402,7 +418,7 @@ public sealed partial class MainWindow : Window
     void WithDialog(Action show)
     {
         dialogOpen = true; hideTimer.Stop(); EnableEditing();
-        try { show(); } finally { dialogOpen = false; Native.NoActivate(this, true); Render(); }
+        try { show(); } finally { dialogOpen = false; Native.NoActivate(this, true); Render(); RestartHideTimer(); }
     }
     void EditFolder(FolderEntry item)
     {
@@ -422,19 +438,32 @@ public sealed partial class MainWindow : Window
     void ShowSettings() => WithDialog(() => CreateSettingsDialog().ShowDialog());
     internal DockDialog CreateSettingsDialog()
     {
-        var dialog = new DockDialog(this, "设置", "", 360, 370);
+        var dialog = new DockDialog(this, "设置", "", 400, 400);
         dialog.SizeToContent = SizeToContent.Height;
         dialog.MaxHeight = Math.Max(300, Forms.Screen.FromHandle(handle).WorkingArea.Height / VisualTreeHelper.GetDpi(this).DpiScaleY - 40);
-        void Toggle(string label, bool initial, Action<bool> apply)
+        void Section(string title, bool separated = false)
         {
-            var box = new CheckBox { Content = label, IsChecked = initial, Margin = new Thickness(0, 5, 0, 9), FontSize = Ui.ExplorerFontSize };
+            if (separated) dialog.Body.Children.Add(new Border { Height = 1, Background = Ui.Line, Margin = new Thickness(0, 12, 0, 16) });
+            var heading = Ui.Text(title, Ui.ExplorerFontSize + 1, Ui.Muted);
+            heading.Margin = new Thickness(0, 0, 0, 8); dialog.Body.Children.Add(heading);
+        }
+        Section("面板与目录");
+        void Description(string text)
+        {
+            var note = Ui.Text(text, Math.Max(10, Ui.ExplorerFontSize - 1), Ui.Muted);
+            note.TextWrapping = TextWrapping.Wrap; note.Margin = new Thickness(24, 0, 0, 6);
+            dialog.Body.Children.Add(note);
+        }
+        void Toggle(string label, bool initial, Action<bool> apply, string? description = null)
+        {
+            var box = new CheckBox { Content = label, IsChecked = initial, Margin = new Thickness(2, 5, 0, description == null ? 7 : 3), FontSize = Ui.ExplorerFontSize };
             box.Click += (_, _) => { apply(box.IsChecked == true); store.Save(); }; dialog.Body.Children.Add(box);
+            if (description != null) Description(description);
         }
         Toggle("固定面板", store.State.KeepOpen, v => { store.State.KeepOpen = v; UpdatePin(); });
-        Toggle("记录最近目录", store.State.RecordRecent, v => store.State.RecordRecent = v);
-        Toggle("从资源管理器发现目录", store.State.TrackExplorer, v => store.State.TrackExplorer = v);
+        Toggle("记录最近目录", store.State.RecordRecent, v => store.State.RecordRecent = v, "记录资源管理器、PowerShell 和 PathDock 中使用的目录。");
         var follow = new CheckBox { Content = "文件对话框跟随资源管理器", IsChecked = store.State.FollowFileDialogs, IsEnabled = !preview,
-            Margin = new Thickness(0, 5, 0, 9), FontSize = Ui.ExplorerFontSize,
+            Margin = new Thickness(2, 5, 0, 3), FontSize = Ui.ExplorerFontSize,
             ToolTip = "从文件对话框切换到资源管理器，再返回时，自动进入刚刚浏览的目录。适用于支持的 Windows 标准文件对话框。" };
         follow.Click += (_, _) => {
             var previous = store.State.FollowFileDialogs;
@@ -447,14 +476,14 @@ public sealed partial class MainWindow : Window
             }
         };
         dialog.Body.Children.Add(follow);
-        var side = new ComboBox { ItemsSource = new[] { "右侧停靠", "左侧停靠", "顶部停靠", "底部停靠" }, SelectedIndex = Array.IndexOf(new[] { "right", "left", "top", "bottom" }, store.State.Side), Margin = new Thickness(0, 8, 0, 12), Padding = new Thickness(5) };
-        side.SelectionChanged += (_, _) => { store.State.FloatingPanel = false; store.State.Side = new[] { "right", "left", "top", "bottom" }[Math.Max(0, side.SelectedIndex)]; store.Save(); Place(); }; dialog.Body.Children.Add(side);
+        Description("返回文件对话框时，自动切换到刚浏览的目录。");
         var installed = File.Exists(Path.Combine(store.Root, "integration.json"));
-        var integrationBody = new StackPanel { Margin = new Thickness(10, 6, 10, 10) };
-        var integration = new CheckBox { Content = "允许在当前终端切换目录", IsChecked = installed, FontSize = Ui.ExplorerFontSize, Margin = new Thickness(0, 0, 0, 8), IsEnabled = !preview };
+        Section("PowerShell", true);
+        var integrationBody = new StackPanel { Margin = new Thickness(2, 0, 0, 0) };
+        var integration = new CheckBox { Content = "在 PowerShell 中切换目录", IsChecked = installed, FontSize = Ui.ExplorerFontSize, Margin = new Thickness(0, 6, 0, 8), IsEnabled = !preview };
         integration.ToolTip = "备份并追加用户 PowerShell 配置。仅在空提示符下切换；有未提交输入或正在运行命令时不切换。";
-        var state = Ui.Text(installed ? "在空闲的 PowerShell 中，点击目录即可切换。" : "启用后，对新打开的 PowerShell 标签生效。", Ui.ExplorerFontSize, Ui.Muted);
-        state.TextWrapping = TextWrapping.Wrap;
+        var state = Ui.Text(installed ? "在空提示符下点击目录，即可切换当前路径。" : "启用后，在新打开的 PowerShell 中生效。", Ui.ExplorerFontSize, Ui.Muted);
+        state.TextWrapping = TextWrapping.Wrap; state.Margin = new Thickness(22, 0, 0, 0);
         integration.Click += async (_, _) =>
         {
             var enable = integration.IsChecked == true; integration.IsEnabled = false;
@@ -467,9 +496,7 @@ public sealed partial class MainWindow : Window
             finally { integration.IsEnabled = true; }
         };
         integrationBody.Children.Add(integration); integrationBody.Children.Add(state);
-        var titleNote = Ui.Text("空闲时，终端标题会自动显示 [PD:…] 会话标记。", Ui.ExplorerFontSize, Ui.Muted);
-        titleNote.TextWrapping = TextWrapping.Wrap; titleNote.Margin = new Thickness(0, 7, 0, 0); integrationBody.Children.Add(titleNote);
-        dialog.Body.Children.Add(new GroupBox { Header = "PowerShell", FontSize = Ui.ExplorerFontSize, BorderBrush = Ui.Line, BorderThickness = new Thickness(1), Content = integrationBody, Margin = new Thickness(0, 4, 0, 0) });
+        dialog.Body.Children.Add(integrationBody);
         return dialog;
     }
     void UpdatePin() { if (pin != null) { pin.Background = store.State.KeepOpen ? Ui.Brush("#DFEAF8") : Brushes.Transparent; pin.ToolTip = store.State.KeepOpen ? "取消固定面板" : "固定面板"; } }
@@ -521,7 +548,8 @@ public sealed partial class MainWindow : Window
             if (animate ?? SystemParameters.ClientAreaAnimation) EnsureEdgeWindow().WarmBehind(handle, store.State.Side, host, EdgeSourceBounds());
             else EnsureEdgeWindow().PrepareAt(handle, store.State.Side);
         }
-        transitionDurationMs = expand ? 220 : 240;
+        // Keep a consistent pace when an in-flight transition reverses.
+        transitionDurationMs = (expand ? 220 : 240) * Math.Abs(transitionTo - transitionFrom);
         CompositionTarget.Rendering -= AnimateDock;
         if (!(animate ?? SystemParameters.ClientAreaAnimation))
         {
@@ -546,7 +574,7 @@ public sealed partial class MainWindow : Window
     {
         var firstFrame = waitingForFirstRender;
         if (firstFrame) { waitingForFirstRender = false; slideClock.Restart(); }
-        var progress = firstFrame ? 0 : Math.Clamp(slideClock.Elapsed.TotalMilliseconds / transitionDurationMs, 0, 1);
+        var progress = firstFrame ? 0 : transitionDurationMs <= 0 ? 1 : Math.Clamp(slideClock.Elapsed.TotalMilliseconds / transitionDurationMs, 0, 1);
         var eased = DockEasing(progress);
         reveal = transitionFrom + (transitionTo - transitionFrom) * eased;
         motionFrames++;
@@ -564,7 +592,7 @@ public sealed partial class MainWindow : Window
         if (edgeButton != null) edgeButton.IsHitTestVisible = collapsed;
         Place(); // Place already positions and shows the collapsed edge window.
         if (!collapsed) { edgeWindow?.Hide(); edgeWindow?.ClearTail(); }
-        if (!collapsed && !store.State.KeepOpen && !IsMouseOver) hideTimer.Start();
+        if (!collapsed) RestartHideTimer();
     }
     EdgeWindow EnsureEdgeWindow() => edgeWindow ??= new EdgeWindow(Expand,
         (x, y) => { store.State.FloatingPanel = false; DockAt(x, y); });

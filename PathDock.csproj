@@ -8,7 +8,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>enable</Nullable>
     <AssemblyName>PathDock</AssemblyName>
-    <Version>0.3.16</Version>
+    <Version>0.3.17</Version>
     <Description>Windows desktop folder shortcuts and edge dock</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\PathDock.ico</ApplicationIcon>

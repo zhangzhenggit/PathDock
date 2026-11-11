@@ -22,7 +22,6 @@ public sealed class DockState
     public int Schema { get; set; } = 1;
     public List<FolderEntry> Folders { get; set; } = new();
     public bool KeepOpen { get; set; }
-    public bool TrackExplorer { get; set; } = true;
     public bool RecordRecent { get; set; } = true;
     public bool FollowFileDialogs { get; set; }
     public string Side { get; set; } = "right";
