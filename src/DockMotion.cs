@@ -6,22 +6,20 @@ internal readonly record struct DockMotionFrame(double Position, double Velocity
 
 internal static class DockMotion
 {
-    // Analytic critically damped motion: no frame-count dependency or spring
-    // oscillation. A reversal retains the last displayed position and velocity.
+    // Finite, monotone easing. Reversals never continue towards the old target.
     internal static DockMotionFrame Sample(double start, double target, double velocity, double seconds)
     {
-        var time = Math.Max(0, seconds);
-        // Full travel settles in roughly 220 ms opening / 240 ms closing.
-        var rate = target > .5 ? 46d : 42d;
-        var offset = start - target;
-        var coefficient = velocity + rate * offset;
-        var decay = Math.Exp(-rate * time);
-        var position = target + (offset + coefficient * time) * decay;
-        var speed = (velocity - rate * coefficient * time) * decay;
-        // Inertia can reach the old endpoint during a rapid reversal. Never
-        // expose pixels outside the dock's [edge, panel] range.
-        if (position < 0 || position > 1) { position = Math.Clamp(position, 0, 1); speed = 0; }
-        var complete = (Math.Abs(position - target) <= .0005 && Math.Abs(speed) <= .025) || time >= .5;
-        return complete ? new(target, 0, true) : new(position, speed, false);
+        var distance = target - start;
+        if (Math.Abs(distance) < 1e-7) return new(target, 0, true);
+        var duration = (target > .5 ? .32 : .35) * (.45 + .55 * Math.Sqrt(Math.Abs(distance)));
+        var t = Math.Clamp(seconds / duration, 0, 1);
+        if (t >= 1) return new(target, 0, true);
+        // Clamp the forward tangent so the derivative remains nonnegative.
+        // Opposing inertia is deliberately removed instead of creating recoil.
+        var tangent = Math.Clamp(velocity * duration / distance, 0, 3);
+        var remaining = 1 - t;
+        var progress = t * t * (6 - 8 * t + 3 * t * t) + tangent * t * remaining * remaining * remaining;
+        var slope = remaining * remaining * (12 * t + tangent * (1 - 4 * t));
+        return new(start + distance * progress, distance * slope / duration, false);
     }
 }

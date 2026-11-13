@@ -3,6 +3,14 @@ using System.Runtime.InteropServices;
 namespace PathDock;
 internal static partial class Native
 {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, System.Text.StringBuilder text, int length);
+    internal static string PointerClassAtCenter(IntPtr window)
+    {
+        if (!GetWindowRect(window, out var bounds)) return "InvalidWindow";
+        var hit = WindowFromPoint(new POINT { X = (bounds.Left + bounds.Right) / 2, Y = (bounds.Top + bounds.Bottom) / 2 });
+        var text = new System.Text.StringBuilder(256); GetClassName(hit, text, text.Capacity);
+        return text.ToString();
+    }
     [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
     [DllImport("user32.dll")] static extern int GetWindowRgn(IntPtr window, IntPtr region);

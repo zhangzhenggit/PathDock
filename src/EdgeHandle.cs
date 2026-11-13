@@ -14,8 +14,8 @@ internal sealed class EdgeHandle : Border
     public static void ConfigureVisual(Border border)
     {
         border.Child = new Image { Source = AppIcon.Vector, Width = 26, Height = 26, IsHitTestVisible = false };
-        border.BorderBrush = Ui.Brush("#BCCCDD"); border.BorderThickness = new Thickness(1);
-        border.Background = new LinearGradientBrush(Color.FromRgb(247, 250, 253), Color.FromRgb(233, 240, 248), 90);
+        border.BorderBrush = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : Ui.Brush("#86B8D7"); border.BorderThickness = new Thickness(1);
+        border.Background = Ui.EdgeBackground;
     }
     public static void ApplyDockSide(Border border, string side)
     {

@@ -17,20 +17,20 @@ internal sealed partial class EdgeWindow : Window
     bool tailActive;
     (int X, int Y, int Width, int Height, bool Behind)? lastPlacement;
     string? visualSide;
-    readonly System.Windows.Shapes.Rectangle tailBackdrop = new() { IsHitTestVisible = false };
     public bool TailActive => tailActive;
-    public void SetTailMix(double amount, Rect sourceBounds)
+    public void SuspendInput() => shell.IsEnabled = false;
+    public void KeepOpeningCover() { Topmost = true; Native.KeepAbove(handle); }
+    public void RevealHandle()
     {
         if (!warming || !HasRenderedContent) return;
-        // Paint the panel's live slice in the transparent HWND, then fade it
-        // away. Its corner pixels reach transparency before the main HWND hides.
-        if (tailBackdrop.Fill is VisualBrush brush) brush.Viewbox = sourceBounds;
-        shell.Opacity = amount; tailBackdrop.Opacity = 1 - amount;
-        if (amount > 0 && !tailActive) { tailActive = true; Topmost = true; PositionAtAnchor(); }
+        // The panel slides behind a fully opaque, fixed-size icon. There is
+        // no rectangular backdrop or opacity dip to change its corner shape.
+        shell.Opacity = 1;
+        if (!tailActive) { tailActive = true; Topmost = true; PositionAtAnchor(); }
     }
     public void ClearTail()
     {
-        tailActive = false; tailBackdrop.Fill = null; tailBackdrop.Opacity = 0; shell.Opacity = 1;
+        tailActive = false; shell.Opacity = 1;
     }
     public bool HasRenderedContent { get; private set; }
     public EdgeWindow(Action expand, Action<int, int> dropped)
@@ -44,7 +44,7 @@ internal sealed partial class EdgeWindow : Window
         shell.Expand = expand;
         EdgeHandle.ConfigureVisual(shell);
         shell.ToolTip = "PathDock · 拖动可更换停靠位置";
-        var content = new Grid(); content.Children.Add(tailBackdrop); content.Children.Add(shell); Content = content;
+        Content = shell;
         shell.MouseLeftButtonDown += (_, e) =>
         {
             var cursor = System.Windows.Forms.Cursor.Position;
@@ -101,11 +101,10 @@ internal sealed partial class EdgeWindow : Window
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
         PositionAtAnchor();
     }
-    public void WarmBehind(IntPtr mainWindow, string dockSide, Visual source, Rect sourceBounds)
+    public void WarmBehind(IntPtr mainWindow, string dockSide)
     {
         tailActive = false; warming = true; shell.IsEnabled = false; Topmost = false;
-        tailBackdrop.Fill = new VisualBrush(source) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = sourceBounds, Stretch = Stretch.Fill };
-        tailBackdrop.Opacity = 1; shell.Opacity = 0;
+        shell.Opacity = 0;
         PrepareAt(mainWindow, dockSide);
         if (!IsVisible) { Show(); PositionAtAnchor(); }
     }

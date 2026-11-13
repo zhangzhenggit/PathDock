@@ -6,7 +6,7 @@ internal static class DockMotionChecks
 {
     internal static void Run(Action<string, Action> test, Action<bool> require)
     {
-        test("Dock motion starts at rest, responds promptly and settles without overshoot", () => {
+        test("Dock motion starts gently and settles without an aggressive initial jump", () => {
             foreach (var target in new[] { 0d, 1d })
             {
                 var start = 1 - target;
@@ -20,21 +20,28 @@ internal static class DockMotionChecks
                     require(target == 1 ? frame.Position >= previous : frame.Position <= previous);
                     previous = frame.Position;
                 }
-                require(DockMotion.Sample(start, target, 0, .3).Complete);
-                require(Math.Abs(DockMotion.Sample(start, target, 0, .05).Position - start) > .6);
+                require(DockMotion.Sample(start, target, 0, .4).Complete);
+                var earlyTravel = Math.Abs(DockMotion.Sample(start, target, 0, .05).Position - start);
+                require(earlyTravel > .08 && earlyTravel < .16);
+                require(!DockMotion.Sample(start, target, 0, .25).Complete);
             }
         });
-        test("Reversals retain the displayed position and velocity", () => {
+        test("Reversals start from the displayed position without recoiling", () => {
             foreach (var target in new[] { 0d, 1d })
             foreach (var time in new[] { .005, .02, .06, .12, .20 })
             {
                 var incoming = DockMotion.Sample(1 - target, target, 0, time);
                 var reversed = DockMotion.Sample(incoming.Position, 1 - target, incoming.Velocity, 0);
                 require(Math.Abs(reversed.Position - incoming.Position) < 1e-10);
-                require(Math.Abs(reversed.Velocity - incoming.Velocity) < 1e-10);
-                var after = DockMotion.Sample(incoming.Position, 1 - target, incoming.Velocity, .000001);
-                require(Math.Abs((after.Position - reversed.Position) / .000001 - incoming.Velocity) < .01);
-                require(DockMotion.Sample(incoming.Position, 1 - target, incoming.Velocity, .4).Complete);
+                require(reversed.Velocity == 0);
+                var previous = reversed.Position;
+                for (var i = 1; i <= 400; i++)
+                {
+                    var after = DockMotion.Sample(incoming.Position, 1 - target, incoming.Velocity, i / 1000d);
+                    require(target == 1 ? after.Position <= previous : after.Position >= previous);
+                    previous = after.Position;
+                }
+                require(DockMotion.Sample(incoming.Position, 1 - target, incoming.Velocity, .5).Complete);
             }
         });
         test("Repeated reversals stay bounded and settle at different refresh rates", () => {
@@ -55,7 +62,7 @@ internal static class DockMotionChecks
         test("Near-endpoint reversals do not snap across a visible distance", () => {
             var frame = DockMotion.Sample(.03, 0, 0, 1d / 144);
             require(!frame.Complete && frame.Position > .02);
-            require(DockMotion.Sample(.03, 0, 0, .25).Complete);
+            require(DockMotion.Sample(.03, 0, 0, .35).Complete);
         });
     }
 }

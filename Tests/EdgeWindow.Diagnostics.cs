@@ -42,7 +42,17 @@ internal sealed partial class EdgeWindow
     public void SetRenderedStateForTest(bool ready) => HasRenderedContent = ready;
     public bool IsPreparedForHandoff => warming && IsVisible && !shell.IsEnabled
         && (tailActive ? Native.IsAboveWindow(handle, anchor) : Native.CoveredByWindow(handle, anchor));
-    public bool TailSourceReleased => !tailActive && tailBackdrop.Fill == null && shell.Opacity == 1;
+    public bool IsOpeningCoverSafe => IsVisible && !shell.IsEnabled;
+    public bool TailSourceReleased => !tailActive && shell.Opacity == 1;
+    public byte[] RenderHandlePixels()
+    {
+        shell.UpdateLayout(); var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(shell);
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Round(shell.ActualWidth * dpi.DpiScaleX),
+            (int)Math.Round(shell.ActualHeight * dpi.DpiScaleY), 96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(shell);
+        var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4]; bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+        return pixels;
+    }
     public (byte[] Pixels, int Width, int Height) RenderTailPixels()
     {
         UpdateLayout(); var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
@@ -55,10 +65,9 @@ internal sealed partial class EdgeWindow
     public bool PresentationMatches(System.Windows.Controls.Border other)
     {
         var a = (System.Windows.Controls.Image)shell.Child; var b = (System.Windows.Controls.Image)other.Child;
-        var x = (System.Windows.Media.LinearGradientBrush)shell.Background; var y = (System.Windows.Media.LinearGradientBrush)other.Background;
         return shell.CornerRadius == other.CornerRadius && shell.BorderThickness == other.BorderThickness
             && ReferenceEquals(a.Source, b.Source) && a.Width == b.Width && a.Height == b.Height
-            && x.GradientStops[0].Color == y.GradientStops[0].Color && x.GradientStops[1].Color == y.GradientStops[1].Color;
+            && ReferenceEquals(shell.Background, other.Background);
     }
     public bool IsPresent => IsVisible && WindowState == WindowState.Normal && Native.ReceivesPointerAtCenter(handle);
     public bool IsAtAnchor
