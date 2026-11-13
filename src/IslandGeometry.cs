@@ -28,8 +28,17 @@ internal static class IslandGeometry
             target.Width + (width - target.Width) * t, target.Height + (height - target.Height) * t);
         var sharp = Smooth((t - .24) / .48);
         var soft = (1 - sharp) * Smooth((t - .08) / .32);
-        var capsuleRadius = Math.Min(bounds.Width, bounds.Height) / 2;
-        var radius = capsuleRadius + (10 - capsuleRadius) * Smooth((t - .2) / .4);
+        // The old radius grew with the shrinking card's short axis, then
+        // contracted again: a visible bulge in the middle of a monotone motion.
+        var radius = EdgeHandle.ShortExtent / 2 + (10 - EdgeHandle.ShortExtent / 2) * Smooth(t / .45);
+        if (t > 0 && t < 1)
+        {
+            // Keep insignificant floating-point changes from choosing different
+            // antialiasing buckets on fractional-DPI screens.
+            double Stable(double value) => Math.Round(value * scale * 64) / (scale * 64);
+            bounds = new Rect(Stable(bounds.X), Stable(bounds.Y), Stable(bounds.Width), Stable(bounds.Height));
+            radius = Stable(radius);
+        }
         return new(bounds, radius, sharp, soft, 1 - Smooth((t - .025) / .18));
     }
 }

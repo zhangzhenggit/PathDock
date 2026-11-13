@@ -13,6 +13,7 @@ public sealed partial class MainWindow
     Point islandExpandedPosition, islandDockPosition;
     int islandSnapshotCount;
     partial void RecordIslandPreparation(double captureMs, double preparationMs);
+    partial void ConfigureRightEdgeConstraint(ref bool enabled);
     bool BeginIslandTransition()
     {
         if (islandActive && islandWindow?.HasSnapshot == true) return true;
@@ -40,9 +41,10 @@ public sealed partial class MainWindow
             islandExpandedPosition = floatingTransition ? floatingPosition : new Point(bounds.Left, bounds.Top);
             islandDockPosition = floatingTransition ? dockPosition : islandExpandedPosition;
             islandWindow ??= new IslandWindow();
-            var edge = EnsureEdgeWindow();
-            edge.PrepareAt(handle, store.State.Side);
             islandWindow.Prepare(snapshot, ActualWidth, ActualHeight, scale, store.State.Side);
+            var constrainRight = !floatingTransition && store.State.Side == "right";
+            ConfigureRightEdgeConstraint(ref constrainRight);
+            if (constrainRight) islandWindow.ConstrainRightEdge(islandExpandedPosition.X + ActualWidth * scale);
             islandActive = true; islandCovered = false;
             PresentIslandFrame();
             RecordIslandPreparation(captureMs, Stopwatch.GetElapsedTime(preparationStarted).TotalMilliseconds);
@@ -59,6 +61,6 @@ public sealed partial class MainWindow
     {
         var position = new Point(islandDockPosition.X + (islandExpandedPosition.X - islandDockPosition.X) * reveal,
             islandDockPosition.Y + (islandExpandedPosition.Y - islandDockPosition.Y) * reveal);
-        islandWindow!.Present(reveal, position);
+        islandWindow!.Present(reveal, position, collapsed);
     }
 }

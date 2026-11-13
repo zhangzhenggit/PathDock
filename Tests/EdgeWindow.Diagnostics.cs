@@ -17,6 +17,13 @@ internal sealed partial class EdgeWindow
         }
         await System.Threading.Tasks.Task.Delay(50);
         var floating = shell.CornerRadius == new CornerRadius(22) && shell.BorderThickness == new Thickness(1) && shell.Effect == null && dragging;
+        var dragBounds = Native.WindowBounds(handle);
+        var dragRegion = Native.DockRegionState(handle);
+        var dragWidth = dragBounds.Right - dragBounds.Left;
+        var dragHeight = dragBounds.Bottom - dragBounds.Top;
+        var unclipped = dragWidth == dragHeight && Math.Abs(ActualWidth - ActualHeight) < .1
+            && dragRegion.Width >= dragWidth && dragRegion.Height >= dragHeight
+            && !Native.RegionExcludes(handle, dragWidth / 2, dragHeight - 3);
 
         var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(ActualWidth * 2), (int)Math.Ceiling(ActualHeight * 2), 192, 192, System.Windows.Media.PixelFormats.Pbgra32);
         bitmap.Render(this);
@@ -24,7 +31,7 @@ internal sealed partial class EdgeWindow
         var directory = System.IO.Path.Combine(Environment.CurrentDirectory, "artifacts", "test-results"); System.IO.Directory.CreateDirectory(directory);
         using (var file = System.IO.File.Create(System.IO.Path.Combine(directory, "edge-drag.png"))) encoder.Save(file);
         StopDragVisual(); PositionAtAnchor();
-        return floating && immediate && shell.Effect == null && !dragging;
+        return unclipped && floating && immediate && shell.Effect == null && !dragging;
     }
     public bool HasAccessibleButton
     {

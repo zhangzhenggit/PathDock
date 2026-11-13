@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window
     double reveal = 1, transitionFrom = 1, transitionTo = 1;
     double motionVelocity, transitionVelocity;
     TimeSpan lastRenderingTime = TimeSpan.MinValue;
+    TimeSpan? closingRenderingStart;
     (int X, int Y, int Width, int Height)? lastTransitionPlacement;
     string? edgeVisualSide;
     readonly record struct DockRegionStamp(int X, int Y, int Width, int Height, int Radius, Rect? Cutout, double Scale, bool Empty = false);
@@ -595,6 +596,7 @@ public sealed partial class MainWindow : Window
         openingHandleCover = expand && edgeWindow?.IsVisible == true;
         if (openingHandleCover) edgeWindow!.SuspendInput();
         lastRenderingTime = TimeSpan.MinValue;
+        closingRenderingStart = null;
         lastTransitionPlacement = null;
         collapsed = !expand;
         transitionFrom = reveal; transitionTo = destination;
@@ -659,11 +661,20 @@ public sealed partial class MainWindow : Window
             {
                 if (islandWindow?.HasPresented != true) { slideClock.Restart(); return; }
                 islandCovered = true; Hide(); edgeWindow?.Hide(); openingHandleCover = false;
-                slideClock.Restart(); waitingForFirstRender = false;
+                // The freshly revealed overlay must present the exact start
+                // geometry before time advances, rather than taking a tiny
+                // wall-clock step during the native-window handoff.
+                slideClock.Restart(); waitingForFirstRender = true;
             }
             var firstFrame = waitingForFirstRender;
             if (firstFrame) { waitingForFirstRender = false; slideClock.Restart(); }
-            var frame = DockMotion.Sample(transitionFrom, transitionTo, transitionVelocity, firstFrame ? 0 : slideClock.Elapsed.TotalSeconds);
+            var elapsed = firstFrame ? 0 : slideClock.Elapsed.TotalSeconds;
+            if (collapsed && e is RenderingEventArgs closingFrame)
+            {
+                closingRenderingStart ??= closingFrame.RenderingTime;
+                elapsed = (closingFrame.RenderingTime - closingRenderingStart.Value).TotalSeconds;
+            }
+            var frame = DockMotion.Sample(transitionFrom, transitionTo, transitionVelocity, elapsed);
             reveal = frame.Position; motionVelocity = frame.Velocity;
             motionFrames++;
             if (islandActive) PresentIslandFrame();

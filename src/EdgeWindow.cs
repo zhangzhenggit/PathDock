@@ -15,6 +15,7 @@ internal sealed partial class EdgeWindow : Window
     Point? dragOrigin;
     bool dragging, warming;
     bool tailActive;
+    int dragRegionPixels;
     (int X, int Y, int Width, int Height, bool Behind)? lastPlacement;
     string? visualSide;
     public bool TailActive => tailActive;
@@ -39,7 +40,12 @@ internal sealed partial class EdgeWindow : Window
         // The panel slides behind a fully opaque, fixed-size icon. There is
         // no rectangular backdrop or opacity dip to change its corner shape.
         shell.Opacity = 1;
-        if (!tailActive) { tailActive = true; Topmost = true; PositionAtAnchor(); }
+        if (!tailActive)
+        {
+            tailActive = true; Topmost = true; PositionAtAnchor();
+            var bounds = Native.WindowBounds(handle);
+            Native.SetVisibleRegion(handle, 0, 0, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top, 0);
+        }
     }
     public void ClearTail()
     {
@@ -99,7 +105,9 @@ internal sealed partial class EdgeWindow : Window
     void BeginDragVisual()
     {
         dragging = true;
+        dragRegionPixels = 0;
         visualSide = null; lastPlacement = null;
+        Width = Height = 44;
         shell.CornerRadius = new CornerRadius(22); shell.BorderThickness = new Thickness(1);
     }
     void MoveDragTo(Point cursor)
@@ -108,6 +116,9 @@ internal sealed partial class EdgeWindow : Window
         var scale = Native.ScaleAtPoint((int)cursor.X, (int)cursor.Y);
         var size = (int)Math.Round(44 * scale);
         Native.PositionDockWindow(handle, (int)Math.Round(cursor.X - size / 2d), (int)Math.Round(cursor.Y - size / 2d), size, size);
+        // SetWindowPos does not discard the previous dock capsule's HRGN.
+        // In particular a horizontal 44x32 region cuts the bottom off 44x44.
+        if (dragRegionPixels != size && Native.SetVisibleRegion(handle, 0, 0, size, size, 0)) dragRegionPixels = size;
     }
     void StopDragVisual() { dragging = false; lastPlacement = null; }
     public void PrepareAt(IntPtr mainWindow, string dockSide)
@@ -118,10 +129,13 @@ internal sealed partial class EdgeWindow : Window
     }
     public void WarmBehind(IntPtr mainWindow, string dockSide)
     {
+        if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
+        Native.SetEmptyVisibleRegion(handle);
         tailActive = false; warming = true; shell.IsEnabled = false; Topmost = false;
         shell.Opacity = 0;
         PrepareAt(mainWindow, dockSide);
         if (!IsVisible) { Show(); PositionAtAnchor(); }
+        Native.SetEmptyVisibleRegion(handle);
     }
     public void TrackBehind() { if (warming && IsVisible) PositionAtAnchor(false); }
     public void ShowAt(IntPtr mainWindow, string dockSide)
@@ -130,12 +144,16 @@ internal sealed partial class EdgeWindow : Window
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
         ClearTail(); warming = false; shell.IsEnabled = true; Topmost = true;
         PositionAtAnchor(); if (!IsVisible) { Show(); PositionAtAnchor(); }
+        var bounds = Native.WindowBounds(handle);
+        Native.SetVisibleRegion(handle, 0, 0, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top, 0);
     }
     void PositionAtAnchor(bool force = true)
     {
         if (anchor == IntPtr.Zero || handle == IntPtr.Zero || !Native.IsWindow(anchor)) return;
         var bounds = Native.WindowBounds(anchor); var scale = Native.WindowScale(anchor);
         var horizontal = side is "top" or "bottom";
+        Width = horizontal ? EdgeHandle.LongExtent : EdgeHandle.ShortExtent;
+        Height = horizontal ? EdgeHandle.ShortExtent : EdgeHandle.LongExtent;
         var width = (int)Math.Round((horizontal ? EdgeHandle.LongExtent : EdgeHandle.ShortExtent) * scale);
         var height = (int)Math.Round((horizontal ? EdgeHandle.ShortExtent : EdgeHandle.LongExtent) * scale);
         var x = horizontal ? bounds.Left + (int)Math.Round((bounds.Right - bounds.Left - width) / 2d) : side == "left" ? bounds.Left : bounds.Right - width;

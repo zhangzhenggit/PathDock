@@ -42,12 +42,16 @@ internal static class IslandGeometryChecks
                 }
             }
         });
-        test("Early expansion retains a capsule silhouette", () => {
+        test("Corner radius changes monotonically without a mid-transition bulge", () => {
             foreach (var side in new[] { "left", "right", "top", "bottom" })
-            foreach (var amount in new[] { 0d, .005, .01, .025, .1, .2 })
             {
-                var frame = IslandGeometry.Sample(300, 600, side, amount);
-                require(frame.Radius > Math.Min(frame.Bounds.Width, frame.Bounds.Height) * .48);
+                var previous = EdgeHandle.ShortExtent / 2;
+                for (var i = 0; i <= 1000; i++)
+                {
+                    var frame = IslandGeometry.Sample(300, 600, side, i / 1000d);
+                    require(frame.Radius <= previous && frame.Radius >= 10);
+                    previous = frame.Radius;
+                }
             }
         });
         test("Island content dissolves before the destination icon becomes dominant", () => {

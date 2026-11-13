@@ -33,6 +33,8 @@ internal static partial class Native
     }
     public static bool PositionDockWindow(IntPtr window, int left, int top, int width, int height)
     { RecordWindowPosition(); return SetWindowPos(window, new IntPtr(-1), left, top, width, height, 0x10); }
+    public static bool MoveDockWindow(IntPtr window, int left, int top)
+    { RecordWindowPosition(); return SetWindowPos(window, IntPtr.Zero, left, top, 0, 0, 0x215); }
     public static bool PositionDockBehind(IntPtr window, IntPtr main, int left, int top, int width, int height)
     { RecordWindowPosition(); return SetWindowPos(window, main, left, top, width, height, 0x10); }
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }

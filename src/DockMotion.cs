@@ -18,6 +18,15 @@ internal static class DockMotion
         // Opposing inertia is deliberately removed instead of creating recoil.
         var tangent = Math.Clamp(velocity * duration / distance, 0, 3);
         var remaining = 1 - t;
+        if (target < .5)
+        {
+            // Closing previously used the opening curve: most travel finished
+            // early, leaving a long, nearly stationary capsule tail. A balanced
+            // cubic distributes contraction across the same total duration.
+            var closingProgress = t * t * (3 - 2 * t) + tangent * t * remaining * remaining;
+            var closingSlope = 6 * t * remaining + tangent * remaining * (1 - 3 * t);
+            return new(start + distance * closingProgress, distance * closingSlope / duration, false);
+        }
         var progress = t * t * (6 - 8 * t + 3 * t * t) + tangent * t * remaining * remaining * remaining;
         var slope = remaining * remaining * (12 * t + tangent * (1 - 4 * t));
         return new(start + distance * progress, distance * slope / duration, false);

@@ -22,9 +22,17 @@ internal static class DockMotionChecks
                 }
                 require(DockMotion.Sample(start, target, 0, .45).Complete);
                 var earlyTravel = Math.Abs(DockMotion.Sample(start, target, 0, .05).Position - start);
-                require(earlyTravel > .04 && earlyTravel < .1);
+                require(earlyTravel > (target == 0 ? .03 : .04) && earlyTravel < .1);
                 require(!DockMotion.Sample(start, target, 0, .25).Complete);
             }
+        });
+        test("Closing keeps moving through the final quarter without changing opening", () => {
+            var atThreeQuarters = DockMotion.Sample(1, 0, 0, .42 * .75);
+            var nearEnd = DockMotion.Sample(1, 0, 0, .42 * .9);
+            require(atThreeQuarters.Position > .15 && atThreeQuarters.Position < .17);
+            require(nearEnd.Position > .02 && nearEnd.Position < .04);
+            var opening = DockMotion.Sample(0, 1, 0, .4 * .5);
+            require(Math.Abs(opening.Position - .6875) < 1e-10);
         });
         test("Reversals start from the displayed position without recoiling", () => {
             foreach (var target in new[] { 0d, 1d })

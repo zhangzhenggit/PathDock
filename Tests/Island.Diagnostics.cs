@@ -21,6 +21,8 @@ public sealed partial class MainWindow
         var switchDifferences = new List<object>();
         bool endpointMatches = true;
         bool continuousAtCapsule = true;
+        bool retainedSurfaceSuppressed = true;
+        bool rightViewportStaysOnPanelScreen = true;
         bool frozen = true, geometry = true, stableSnapshots = true, opaque = true, reverse = true, released = true;
         var canUse = (RenderCapability.Tier >> 16) >= 2;
         if (!canUse) return new { Passed = false, Reason = "Hardware rendering unavailable; slide fallback remains enabled." };
@@ -35,6 +37,14 @@ public sealed partial class MainWindow
             StartTransition(false, true);
             CompositionTarget.Rendering -= AnimateDock;
             var island = islandWindow ?? throw new InvalidOperationException("Snapshot transition did not start.");
+            var maskedRegion = Native.DockRegionState(new System.Windows.Interop.WindowInteropHelper(island).Handle);
+            retainedSurfaceSuppressed &= island.HasPresented || maskedRegion.Width == 0 && maskedRegion.Height == 0;
+            if (side == "right")
+            {
+                var overlayBounds = Native.WindowBounds(new System.Windows.Interop.WindowInteropHelper(island).Handle);
+                var panelBounds = Native.WindowBounds(handle);
+                rightViewportStaysOnPanelScreen &= overlayBounds.Right <= panelBounds.Right;
+            }
             var timeout = Stopwatch.StartNew();
             while (!island.HasPresented && timeout.ElapsedMilliseconds < 2000) await Task.Delay(10);
             frozen &= island.SnapshotFrozen;
@@ -100,9 +110,23 @@ public sealed partial class MainWindow
         Collapse();
         StartTransition(true, false);
         var reducedMotionCancels = !animating && !islandActive && IsVisible && islandWindow?.HasSnapshot == false && islandWindow.IsVisible == false;
-        return new { Passed = continuousAtCapsule && endpointMatches && reducedMotionCancels && frozen && geometry && stableSnapshots && opaque && reverse && released,
+        // A floating panel's hidden HWND is positioned away from the edge on
+        // opening. Preparing its snapshot must not relocate the visible capsule.
+        store.State.FloatingPanel = true;
+        var work = System.Windows.Forms.Screen.PrimaryScreen!.WorkingArea;
+        store.State.PanelX = work.Left + 150; store.State.PanelY = work.Top + 100;
+        StartTransition(false, false);
+        var capsuleHandle = new System.Windows.Interop.WindowInteropHelper(edgeWindow!).Handle;
+        var capsuleBefore = Native.WindowBounds(capsuleHandle);
+        Expand();
+        var capsuleAfter = Native.WindowBounds(capsuleHandle);
+        var floatingCapsuleRemainsAtEdge = capsuleBefore == capsuleAfter;
+        StartTransition(true, false);
+        return new { Passed = rightViewportStaysOnPanelScreen && floatingCapsuleRemainsAtEdge && retainedSurfaceSuppressed && continuousAtCapsule && endpointMatches && reducedMotionCancels && frozen && geometry && stableSnapshots && opaque && reverse && released,
             FrozenSnapshots = frozen, GeometryCorrect = geometry, SingleCapturePerTransition = stableSnapshots,
             CardRemainsOpaque = opaque, ReversalContinuous = reverse, SnapshotReleased = released, ReducedMotionCancelsSnapshot = reducedMotionCancels,
+            RetainedSurfaceSuppressedUntilPresented = retainedSurfaceSuppressed, FloatingCapsuleRemainsAtEdge = floatingCapsuleRemainsAtEdge,
+            RightViewportStaysOnPanelScreen = rightViewportStaysOnPanelScreen,
             ContinuousAtCapsule = continuousAtCapsule, EndpointPixelsMatchWithinRounding = endpointMatches, SwitchDifferences = switchDifferences, Cases = matrix, AlphaFailures = alphaFailures, EndpointDifferences = endpointDifferences, ManualVisualSmoothnessVerified = false };
     }
     static void SaveIslandStudy(List<BitmapSource> frames, string screen)

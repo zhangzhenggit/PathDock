@@ -8,7 +8,7 @@ namespace PathDock;
 
 // One frozen snapshot, one passive HWND and one drawing surface per transition.
 // Text is never remeasured while the card contracts into the edge capsule.
-internal sealed class IslandWindow : Window
+internal sealed partial class IslandWindow : Window
 {
     internal const double ScenePadding = 12;
     readonly IslandVisual scene = new();
@@ -21,6 +21,7 @@ internal sealed class IslandWindow : Window
     int presentationFrames;
     TimeSpan presentationTime = TimeSpan.MinValue;
     bool drawingDirty;
+    double? rightViewportLimit;
     public bool HasPresented { get; private set; }
     public bool HasSnapshot => scene.Snapshot != null;
     internal bool SnapshotFrozen => scene.Snapshot?.IsFrozen == true;
@@ -38,7 +39,12 @@ internal sealed class IslandWindow : Window
     public void Prepare(BitmapSource snapshot, double width, double height, double dpiScale, string dockSide)
     {
         CompositionTarget.Rendering -= FinishHandoff; remainingHandoffFrames = 0;
+        if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
+        // Hide the native surface before moving/reusing it. Its retained
+        // layered bitmap may still contain the previous endpoint capsule.
+        Native.SetEmptyVisibleRegion(handle);
         panelWidth = width; panelHeight = height; scale = dpiScale; side = dockSide;
+        rightViewportLimit = null;
         scene.Snapshot = snapshot;
         var soft = new TransformedBitmap(snapshot, new ScaleTransform(.16, .16));
         var stride = soft.PixelWidth * 4;
@@ -49,10 +55,19 @@ internal sealed class IslandWindow : Window
         scene.Width = width + ScenePadding * 2; scene.Height = height + ScenePadding * 2;
         Width = scene.Width; Height = scene.Height;
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
-        placement = null; HasPresented = IsVisible;
+        placement = null; HasPresented = false;
         presentationFrames = 0; presentationTime = TimeSpan.MinValue;
         CompositionTarget.Rendering -= WatchPresentation;
-        if (!HasPresented) CompositionTarget.Rendering += WatchPresentation;
+        CompositionTarget.Rendering += WatchPresentation;
+    }
+    public void ConstrainRightEdge(double physicalRight)
+    {
+        rightViewportLimit = physicalRight;
+        // Keep the drawing's local origin, but omit the off-screen padding.
+        // Explicit left alignment prevents a wider scene being re-centred.
+        scene.HorizontalAlignment = HorizontalAlignment.Left;
+        scene.VerticalAlignment = VerticalAlignment.Top;
+        Width = panelWidth + ScenePadding;
     }
     void WatchPresentation(object? sender, EventArgs e)
     {
@@ -62,19 +77,29 @@ internal sealed class IslandWindow : Window
             presentationTime = frame.RenderingTime;
         }
         if (++presentationFrames < 2) return;
+        if (placement is { } bounds) Native.SetVisibleRegion(handle, 0, 0, bounds.Width, bounds.Height, 0);
         HasPresented = true;
         CompositionTarget.Rendering -= WatchPresentation;
     }
-    public void Present(double reveal, Point basePosition)
+    public void Present(double reveal, Point basePosition, bool closing = false)
     {
+        BeginPresent();
         var geometry = IslandGeometry.Sample(panelWidth, panelHeight, side, reveal, scale);
         var changed = drawingDirty || scene.Frame != geometry;
         scene.Frame = geometry;
         var next = ((int)Math.Round(basePosition.X - ScenePadding * scale), (int)Math.Round(basePosition.Y - ScenePadding * scale),
             (int)Math.Round((panelWidth + ScenePadding * 2) * scale), (int)Math.Round((panelHeight + ScenePadding * 2) * scale));
-        if (placement != next && Native.PositionDockWindow(handle, next.Item1, next.Item2, next.Item3, next.Item4)) placement = next;
+        if (rightViewportLimit is double right) next.Item3 = Math.Max(1, Math.Min(next.Item3, (int)Math.Round(right) - next.Item1));
+        if (placement != next)
+        {
+            var moved = closing && placement is { } old && old.Width == next.Item3 && old.Height == next.Item4
+                ? Native.MoveDockWindow(handle, next.Item1, next.Item2)
+                : Native.PositionDockWindow(handle, next.Item1, next.Item2, next.Item3, next.Item4);
+            if (moved) placement = next;
+        }
         CardScreenBounds = new(basePosition.X + geometry.Bounds.X * scale, basePosition.Y + geometry.Bounds.Y * scale,
             geometry.Bounds.Width * scale, geometry.Bounds.Height * scale);
+        PositionComplete();
         if (changed) { scene.DrawFrame(); drawingDirty = false; }
         if (!IsVisible)
         {
@@ -84,7 +109,14 @@ internal sealed class IslandWindow : Window
             // first transition or after crossing to a differently scaled screen.
             if (Native.PositionDockWindow(handle, next.Item1, next.Item2, next.Item3, next.Item4)) placement = next;
         }
+        // WPF can replace a layered HWND's region during Show/WM_SIZE.
+        // Reapply the guard after those operations, not only before resizing.
+        if (!HasPresented) Native.SetEmptyVisibleRegion(handle);
+        EndPresent();
     }
+    partial void BeginPresent();
+    partial void PositionComplete();
+    partial void EndPresent();
     public void CompleteHandoff()
     {
         Native.KeepAbove(handle);
@@ -95,6 +127,7 @@ internal sealed class IslandWindow : Window
     {
         CompositionTarget.Rendering -= FinishHandoff; CompositionTarget.Rendering -= WatchPresentation;
         remainingHandoffFrames = 0; HasPresented = false;
+        if (handle != IntPtr.Zero) Native.SetEmptyVisibleRegion(handle);
         Hide(); scene.Release();
     }
     public void Prewarm()
@@ -120,6 +153,7 @@ internal sealed class IslandWindow : Window
         }
         if (--remainingHandoffFrames > 0) return;
         CompositionTarget.Rendering -= FinishHandoff;
+        Native.SetEmptyVisibleRegion(handle);
         Hide(); scene.Release();
     }
     internal FrameworkElement DrawingSurface => scene;
