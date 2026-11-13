@@ -84,7 +84,8 @@ public sealed partial class MainWindow : Window
         {
             if (initialized) return; initialized = true;
             Place(); CreateTray(); targetTimer.Start(); recentTimer.Start(); Render();
-            if (!preview) outsideClickMonitor = new OutsideClickMonitor(OutsideClick);
+            if (!preview) outsideClickMonitor = new OutsideClickMonitor((x, y) =>
+                Dispatcher.BeginInvoke(new Action(() => OutsideClick(x, y))));
             if (!collapsed) RestartHideTimer();
             if (!preview && store.State.FollowFileDialogs) { try { SetDialogFollow(true); } catch (Exception ex) { Toast(ex.Message, true); } }
             if (collapsed) ShowEdgeWindow();
@@ -111,6 +112,7 @@ public sealed partial class MainWindow : Window
     }
     void OutsideClick(int x, int y)
     {
+        if (exiting) return;
         if (collapsed || animating || store.State.KeepOpen || dialogOpen || menuDepth > 0 || draggingPanel || handle == IntPtr.Zero) return;
         var bounds = Native.WindowBounds(handle);
         if (x >= bounds.Left && x < bounds.Right && y >= bounds.Top && y < bounds.Bottom) return;
@@ -351,8 +353,11 @@ public sealed partial class MainWindow : Window
             ProcessStartInfo info;
             if (action == "terminal") { info = new("wt.exe") { UseShellExecute = true }; info.ArgumentList.Add("-w"); info.ArgumentList.Add("0"); info.ArgumentList.Add("new-tab"); info.ArgumentList.Add("-d"); info.ArgumentList.Add(item.Path); }
             else { info = new("explorer.exe") { UseShellExecute = true }; info.ArgumentList.Add(item.Path); }
-            using var launched = Process.Start(info);
-            if (launched == null) throw new IOException("系统未返回启动结果。");
+            await Task.Run(() =>
+            {
+                using var launched = Process.Start(info);
+                if (launched == null) throw new IOException("系统未返回启动结果。");
+            });
             store.Visit(item.Path, action == "terminal" ? "终端打开请求" : "目录打开请求"); Render(); Toast(action == "terminal" ? "已请求在新终端中打开" : "已请求打开目录");
         }
         catch (TimeoutException ex) { Toast(ex.Message, true); }

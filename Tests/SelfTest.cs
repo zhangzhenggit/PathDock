@@ -17,6 +17,12 @@ internal static class SelfTest
         try
         {
             Directory.CreateDirectory(root);
+            Test("Mouse hook pumps messages while the calling UI thread waits", () => {
+                using var monitor = new OutsideClickMonitor((_, _) => { });
+                var probe = monitor.ProbeListener();
+                Require(probe.Wait(TimeSpan.FromSeconds(3)) && probe.Result);
+                monitor.Dispose();
+            });
             DialogFollowChecks.Run(Test, Require, root);
             Test("Dock easing starts gently and finishes without overshoot", () => {
                 Require(MainWindow.DockEasing(0) == 0 && MainWindow.DockEasing(1) == 1);
