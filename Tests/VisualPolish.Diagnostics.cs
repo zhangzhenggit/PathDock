@@ -17,8 +17,8 @@ public sealed partial class MainWindow
     {
         var dpi = VisualTreeHelper.GetDpi(this);
         var horizontal = store.State.Side is "top" or "bottom";
-        var w = Math.Round((horizontal ? 56 : 28) * dpi.DpiScaleX);
-        var h = Math.Round((horizontal ? 28 : 56) * dpi.DpiScaleY);
+        var w = Math.Round((horizontal ? EdgeHandle.LongExtent : EdgeHandle.ShortExtent) * dpi.DpiScaleX);
+        var h = Math.Round((horizontal ? EdgeHandle.ShortExtent : EdgeHandle.LongExtent) * dpi.DpiScaleY);
         var bounds = Native.WindowBounds(handle);
         var x = horizontal ? Math.Round((bounds.Right - bounds.Left - w) / 2d) : store.State.Side == "left" ? 0 : bounds.Right - bounds.Left - w;
         var y = horizontal ? store.State.Side == "top" ? 0 : bounds.Bottom - bounds.Top - h : Math.Round((bounds.Bottom - bounds.Top - h) / 2d);

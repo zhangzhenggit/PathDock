@@ -102,7 +102,7 @@ public sealed partial class MainWindow
                     using var file = System.IO.File.Create(System.IO.Path.Combine(directory, "edge-" + side + ".png")); encoder.Save(file);
                 }
                 var region = Native.DockRegionState(handle); var dpi = VisualTreeHelper.GetDpi(this);
-                collapsedRegionsCorrect &= Math.Abs(region.Width - (side is "top" or "bottom" ? 56 : 28) * dpi.DpiScaleX) <= 2 && Math.Abs(region.Height - (side is "top" or "bottom" ? 28 : 56) * dpi.DpiScaleY) <= 2;
+                collapsedRegionsCorrect &= Math.Abs(region.Width - (side is "top" or "bottom" ? EdgeHandle.LongExtent : EdgeHandle.ShortExtent) * dpi.DpiScaleX) <= 2 && Math.Abs(region.Height - (side is "top" or "bottom" ? EdgeHandle.ShortExtent : EdgeHandle.LongExtent) * dpi.DpiScaleY) <= 2;
                 nativeFramesDisabled &= region.NativeFrameDisabled; collapsedSamples++;
                 double? firstReveal = null;
                 void CaptureFirstFrame(object? sender, EventArgs args) { firstReveal = reveal; CompositionTarget.Rendering -= CaptureFirstFrame; }

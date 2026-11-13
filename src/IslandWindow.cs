@@ -35,12 +35,11 @@ internal sealed class IslandWindow : Window
         SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; Native.PassThrough(this); };
         Closed += (_, _) => { CompositionTarget.Rendering -= FinishHandoff; CompositionTarget.Rendering -= WatchPresentation; scene.Release(); };
     }
-    public void Prepare(BitmapSource snapshot, double width, double height, double dpiScale, string dockSide, BitmapSource capsule)
+    public void Prepare(BitmapSource snapshot, double width, double height, double dpiScale, string dockSide)
     {
         CompositionTarget.Rendering -= FinishHandoff; remainingHandoffFrames = 0;
         panelWidth = width; panelHeight = height; scale = dpiScale; side = dockSide;
         scene.Snapshot = snapshot;
-        scene.Capsule = capsule;
         var soft = new TransformedBitmap(snapshot, new ScaleTransform(.16, .16));
         var stride = soft.PixelWidth * 4;
         var pixels = new byte[stride * soft.PixelHeight]; soft.CopyPixels(pixels, stride, 0);
@@ -103,7 +102,7 @@ internal sealed class IslandWindow : Window
         if (IsVisible || HasSnapshot) return;
         var bitmap = BitmapSource.Create(32, 32, 96, 96, PixelFormats.Pbgra32, null, new byte[32 * 32 * 4], 32 * 4);
         bitmap.Freeze();
-        Prepare(bitmap, 32, 56, 1, "right", bitmap);
+        Prepare(bitmap, 32, 56, 1, "right");
         scene.Measure(new Size(56, 80)); scene.Arrange(new Rect(0, 0, 56, 80));
         foreach (var amount in new[] { 1d, .5, 0 })
         {
@@ -130,22 +129,17 @@ internal sealed class IslandWindow : Window
         public IslandVisual() { AddVisualChild(drawing); }
         protected override int VisualChildrenCount => 1;
         protected override Visual GetVisualChild(int index) => index == 0 ? drawing : throw new ArgumentOutOfRangeException(nameof(index));
-        public BitmapSource? Snapshot, SoftSnapshot, Capsule;
+        public BitmapSource? Snapshot, SoftSnapshot;
         public IslandFrame Frame;
         readonly RectangleGeometry clip = new();
         static readonly Brush shadowOuter = FrozenBrush(5), shadowMiddle = FrozenBrush(9), shadowInner = FrozenBrush(12);
         static Brush FrozenBrush(byte alpha) { var brush = new SolidColorBrush(Color.FromArgb(alpha, 22, 30, 42)); brush.Freeze(); return brush; }
-        public void Release() { Snapshot = null; SoftSnapshot = null; Capsule = null; using var context = drawing.RenderOpen(); }
+        public void Release() { Snapshot = null; SoftSnapshot = null; using var context = drawing.RenderOpen(); }
         public void DrawFrame()
         {
             using var context = drawing.RenderOpen();
             if (Snapshot == null) return;
             var rect = Frame.Bounds; rect.Offset(ScenePadding, ScenePadding);
-            if (Frame.IconOpacity == 1)
-            {
-                context.DrawImage(Capsule, rect);
-                return;
-            }
             // Small fixed shadow rings, not a live blur over a full window.
             context.PushOpacity(4 * Frame.SharpOpacity * (1 - Frame.SharpOpacity));
             var shadow = rect; shadow.Inflate(6, 6); context.DrawRoundedRectangle(shadowOuter, null, shadow, Frame.Radius + 6, Frame.Radius + 6);
@@ -162,7 +156,8 @@ internal sealed class IslandWindow : Window
             if (Frame.IconOpacity > 0)
             {
                 context.PushOpacity(Frame.IconOpacity);
-                context.DrawImage(AppIcon.Vector, new Rect(rect.X + (rect.Width - 26) / 2, rect.Y + (rect.Height - 26) / 2, 26, 26));
+                context.DrawImage(AppIcon.Vector, new Rect(rect.X + (rect.Width - EdgeHandle.IconSize) / 2,
+                    rect.Y + (rect.Height - EdgeHandle.IconSize) / 2, EdgeHandle.IconSize, EdgeHandle.IconSize));
                 context.Pop();
             }
             context.Pop();

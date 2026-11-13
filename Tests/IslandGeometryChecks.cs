@@ -25,7 +25,7 @@ internal static class IslandGeometryChecks
                 var shut = IslandGeometry.Sample(300, height, side, 0);
                 require(open.Bounds == new Rect(0, 0, 300, height) && open.SharpOpacity == 1 && open.IconOpacity == 0);
                 require(shut.Bounds == IslandGeometry.Target(300, height, side) && shut.IconOpacity == 1);
-                require(shut.SharpOpacity == 0 && shut.SoftOpacity == 0 && shut.Radius == 14);
+                require(shut.SharpOpacity == 0 && shut.SoftOpacity == 0 && shut.Radius == EdgeHandle.ShortExtent / 2);
             }
         });
         test("Island contraction converges monotonically without a separate corner squeeze", () => {

@@ -18,7 +18,9 @@ public sealed partial class MainWindow
         var matrix = new List<object>();
         var alphaFailures = new List<object>();
         var endpointDifferences = new List<object>();
+        var switchDifferences = new List<object>();
         bool endpointMatches = true;
+        bool continuousAtCapsule = true;
         bool frozen = true, geometry = true, stableSnapshots = true, opaque = true, reverse = true, released = true;
         var canUse = (RenderCapability.Tier >> 16) >= 2;
         if (!canUse) return new { Passed = false, Reason = "Hardware rendering unavailable; slide fallback remains enabled." };
@@ -70,6 +72,20 @@ public sealed partial class MainWindow
             // level; the former halo differed by up to 194 levels.
             endpointMatches &= differences.All(d => d <= 1);
             endpointDifferences.Add(new { Screen = screen.DeviceName, Side = side, ChangedChannels = differences.Count(d => d != 0), MeanDifference = differences.Average(), MaxDifference = differences.Max() });
+            foreach (var threshold in new[] { .025, 0d })
+            {
+                var pair = new List<byte[]>();
+                foreach (var amount in new[] { threshold + .000001, Math.Max(0, threshold - .000001) })
+                {
+                    reveal = amount; PresentIslandFrame();
+                    var sample = new RenderTargetBitmap(images[^1].PixelWidth, images[^1].PixelHeight, images[^1].DpiX, images[^1].DpiY, PixelFormats.Pbgra32);
+                    sample.Render(island.DrawingSurface);
+                    var pixels = new byte[sample.PixelWidth * sample.PixelHeight * 4]; sample.CopyPixels(pixels, sample.PixelWidth * 4, 0); pair.Add(pixels);
+                }
+                var change = pair[0].Zip(pair[1], (a, b) => Math.Abs(a - b)).ToArray();
+                continuousAtCapsule &= change.All(v => v <= 2);
+                switchDifferences.Add(new { Screen = screen.DeviceName, Side = side, Threshold = threshold, MaxDifference = change.Max(), ChangedChannels = change.Count(v => v > 2) });
+            }
             reveal = .35; PresentIslandFrame();
             var before = island.Frame;
             StartTransition(true, true);
@@ -84,10 +100,10 @@ public sealed partial class MainWindow
         Collapse();
         StartTransition(true, false);
         var reducedMotionCancels = !animating && !islandActive && IsVisible && islandWindow?.HasSnapshot == false && islandWindow.IsVisible == false;
-        return new { Passed = endpointMatches && reducedMotionCancels && frozen && geometry && stableSnapshots && opaque && reverse && released,
+        return new { Passed = continuousAtCapsule && endpointMatches && reducedMotionCancels && frozen && geometry && stableSnapshots && opaque && reverse && released,
             FrozenSnapshots = frozen, GeometryCorrect = geometry, SingleCapturePerTransition = stableSnapshots,
             CardRemainsOpaque = opaque, ReversalContinuous = reverse, SnapshotReleased = released, ReducedMotionCancelsSnapshot = reducedMotionCancels,
-            EndpointPixelsMatchWithinRounding = endpointMatches, Cases = matrix, AlphaFailures = alphaFailures, EndpointDifferences = endpointDifferences, ManualVisualSmoothnessVerified = false };
+            ContinuousAtCapsule = continuousAtCapsule, EndpointPixelsMatchWithinRounding = endpointMatches, SwitchDifferences = switchDifferences, Cases = matrix, AlphaFailures = alphaFailures, EndpointDifferences = endpointDifferences, ManualVisualSmoothnessVerified = false };
     }
     static void SaveIslandStudy(List<BitmapSource> frames, string screen)
     {

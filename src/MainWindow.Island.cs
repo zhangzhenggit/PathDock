@@ -42,7 +42,7 @@ public sealed partial class MainWindow
             islandWindow ??= new IslandWindow();
             var edge = EnsureEdgeWindow();
             edge.PrepareAt(handle, store.State.Side);
-            islandWindow.Prepare(snapshot, ActualWidth, ActualHeight, scale, store.State.Side, edge.CaptureCapsule());
+            islandWindow.Prepare(snapshot, ActualWidth, ActualHeight, scale, store.State.Side);
             islandActive = true; islandCovered = false;
             PresentIslandFrame();
             RecordIslandPreparation(captureMs, Stopwatch.GetElapsedTime(preparationStarted).TotalMilliseconds);

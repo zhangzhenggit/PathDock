@@ -32,7 +32,7 @@ public sealed partial class MainWindow
             byte[]? handleMask = null;
             var strip = new List<(byte[] Pixels, int Width, int Height, double Mix)>();
             var horizontal = side is "top" or "bottom";
-            var takeoverReveal = 28 / (horizontal ? ActualHeight : ActualWidth);
+            var takeoverReveal = EdgeHandle.ShortExtent / (horizontal ? ActualHeight : ActualWidth);
             var previousExtent = int.MaxValue;
             foreach (var mix in new[] { 0d, .075, .25, .5, .75, .95, 1 })
             {

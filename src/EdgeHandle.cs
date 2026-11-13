@@ -11,18 +11,29 @@ namespace PathDock;
 // Add Invoke semantics without changing the dock's mouse capture or activation.
 internal sealed class EdgeHandle : Border
 {
+    internal const double ShortExtent = 32, LongExtent = 44, IconSize = 24;
     public static void ConfigureVisual(Border border)
     {
-        border.Child = new Image { Source = AppIcon.Vector, Width = 26, Height = 26, IsHitTestVisible = false };
+        border.Child = new Image { Source = AppIcon.Vector, Width = IconSize, Height = IconSize, IsHitTestVisible = false, Opacity = border is EdgeHandle ? 0 : 1 };
         border.BorderBrush = Ui.EdgeOutline; border.BorderThickness = new Thickness(1);
         border.Background = Ui.EdgeBackground;
     }
     public static void ApplyDockSide(Border border, string side)
     {
-        border.CornerRadius = new CornerRadius(14);
+        border.CornerRadius = new CornerRadius(ShortExtent / 2);
         border.BorderThickness = new Thickness(1);
     }
     public Action? Expand { get; set; }
+    protected override void OnRender(DrawingContext context)
+    {
+        // Use the same primitive and inset as the transition, rather than
+        // Border's different inner/outer rounded-edge rasterization.
+        var rect = new Rect(0, 0, ActualWidth, ActualHeight);
+        context.DrawRoundedRectangle(Background, null, rect, CornerRadius.TopLeft, CornerRadius.TopLeft);
+        rect.Inflate(-.5, -.5);
+        context.DrawRoundedRectangle(null, new Pen(BorderBrush, 1), rect, CornerRadius.TopLeft - .5, CornerRadius.TopLeft - .5);
+        context.DrawImage(AppIcon.Vector, new Rect((ActualWidth - IconSize) / 2, (ActualHeight - IconSize) / 2, IconSize, IconSize));
+    }
     protected override AutomationPeer OnCreateAutomationPeer() => new HandlePeer(this);
     sealed class HandlePeer : FrameworkElementAutomationPeer, IInvokeProvider
     {

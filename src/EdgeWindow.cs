@@ -50,7 +50,7 @@ internal sealed partial class EdgeWindow : Window
     public bool HasRenderedContent { get { var ready = hasRenderedContent; OverrideReadiness(ref ready); return ready; } }
     public EdgeWindow(Action expand, Action<int, int> dropped)
     {
-        Title = "PathDock"; Width = 28; Height = 56;
+        Title = "PathDock"; Width = EdgeHandle.ShortExtent; Height = EdgeHandle.LongExtent;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
         AllowsTransparency = true; Background = Brushes.Transparent; Icon = AppIcon.Image;
@@ -136,8 +136,8 @@ internal sealed partial class EdgeWindow : Window
         if (anchor == IntPtr.Zero || handle == IntPtr.Zero || !Native.IsWindow(anchor)) return;
         var bounds = Native.WindowBounds(anchor); var scale = Native.WindowScale(anchor);
         var horizontal = side is "top" or "bottom";
-        var width = (int)Math.Round((horizontal ? 56 : 28) * scale);
-        var height = (int)Math.Round((horizontal ? 28 : 56) * scale);
+        var width = (int)Math.Round((horizontal ? EdgeHandle.LongExtent : EdgeHandle.ShortExtent) * scale);
+        var height = (int)Math.Round((horizontal ? EdgeHandle.ShortExtent : EdgeHandle.LongExtent) * scale);
         var x = horizontal ? bounds.Left + (int)Math.Round((bounds.Right - bounds.Left - width) / 2d) : side == "left" ? bounds.Left : bounds.Right - width;
         var y = horizontal ? side == "top" ? bounds.Top : bounds.Bottom - height : bounds.Top + (int)Math.Round((bounds.Bottom - bounds.Top - height) / 2d);
         if (visualSide != side) { EdgeHandle.ApplyDockSide(shell, side); visualSide = side; }

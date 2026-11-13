@@ -155,7 +155,7 @@ public sealed partial class MainWindow : Window
         surface.Child = layout; surface.RenderTransform = panelSlide; host.Background = Ui.PanelBackground; host.Children.Add(surface); Content = host;
         EdgeHandle.ConfigureVisual(edgePresentation);
         edgeButton = Ui.Button(edgePresentation);
-        edgeButton.Width = 28; edgeButton.Height = 56; edgeButton.Padding = new Thickness(0); edgeButton.ToolTip = "PathDock";
+        edgeButton.Width = EdgeHandle.ShortExtent; edgeButton.Height = EdgeHandle.LongExtent; edgeButton.Padding = new Thickness(0); edgeButton.ToolTip = "PathDock";
         edgeButton.VerticalAlignment = VerticalAlignment.Center; edgeButton.HorizontalAlignment = HorizontalAlignment.Right;
         edgeButton.Background = Brushes.Transparent; edgeButton.Opacity = 0; edgeButton.IsHitTestVisible = false;
         edgeButton.Click += (_, _) => Expand(); host.Children.Add(edgeButton);
@@ -706,14 +706,14 @@ public sealed partial class MainWindow : Window
         var dpi = VisualTreeHelper.GetDpi(this);
         var horizontal = store.State.Side is "top" or "bottom";
         var parked = collapsed && !animating;
-        var visibleWidth = parked ? (horizontal ? 56 : 28) : horizontal ? ActualWidth : ActualWidth * reveal;
-        var visibleHeight = parked ? (horizontal ? 28 : 56) : horizontal ? ActualHeight * reveal : ActualHeight;
+        var visibleWidth = parked ? (horizontal ? EdgeHandle.LongExtent : EdgeHandle.ShortExtent) : horizontal ? ActualWidth : ActualWidth * reveal;
+        var visibleHeight = parked ? (horizontal ? EdgeHandle.ShortExtent : EdgeHandle.LongExtent) : horizontal ? ActualHeight * reveal : ActualHeight;
         var x = horizontal ? (ActualWidth - visibleWidth) / 2 : store.State.Side == "left" ? 0 : ActualWidth - visibleWidth;
         var y = horizontal ? store.State.Side == "top" ? 0 : ActualHeight - visibleHeight : (ActualHeight - visibleHeight) / 2;
         panelSlide.X = horizontal ? 0 : Math.Round((store.State.Side == "left" ? -1 : 1) * (ActualWidth - visibleWidth) * dpi.DpiScaleX) / dpi.DpiScaleX;
         panelSlide.Y = horizontal ? Math.Round((store.State.Side == "top" ? -1 : 1) * (ActualHeight - visibleHeight) * dpi.DpiScaleY) / dpi.DpiScaleY : 0;
         var primaryExtent = horizontal ? visibleHeight : visibleWidth;
-        var edgeExtent = 28d;
+        var edgeExtent = EdgeHandle.ShortExtent;
         var edgeReveal = Math.Clamp((edgeExtent - primaryExtent) / edgeExtent, 0, 1);
         if (openingHandleCover && primaryExtent >= edgeExtent)
         {
@@ -724,7 +724,7 @@ public sealed partial class MainWindow : Window
         {
             if (edgeVisualSide != store.State.Side)
             {
-                edgeButton.Width = horizontal ? 56 : 28; edgeButton.Height = horizontal ? 28 : 56;
+                edgeButton.Width = horizontal ? EdgeHandle.LongExtent : EdgeHandle.ShortExtent; edgeButton.Height = horizontal ? EdgeHandle.ShortExtent : EdgeHandle.LongExtent;
                 edgePresentation.Width = edgeButton.Width; edgePresentation.Height = edgeButton.Height;
                 EdgeHandle.ApplyDockSide(edgePresentation, store.State.Side);
                 edgeButton.HorizontalAlignment = horizontal ? HorizontalAlignment.Center : store.State.Side == "left" ? HorizontalAlignment.Left : HorizontalAlignment.Right;
@@ -741,7 +741,7 @@ public sealed partial class MainWindow : Window
         }
         ApplyDockRegion(new((int)Math.Round(x * dpi.DpiScaleX), (int)Math.Round(y * dpi.DpiScaleY),
             (int)Math.Ceiling(visibleWidth * dpi.DpiScaleX), (int)Math.Ceiling(visibleHeight * dpi.DpiScaleY),
-            (int)Math.Round((parked ? 28 : 20) * dpi.DpiScaleX),
+            (int)Math.Round((parked ? EdgeHandle.ShortExtent : 20) * dpi.DpiScaleX),
             null, dpi.DpiScaleX));
     }
     void ApplyDockRegion(DockRegionStamp region)
