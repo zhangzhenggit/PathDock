@@ -32,6 +32,12 @@ public sealed partial class MainWindow : Window
     bool animating, draggingPanel, floatingTransition, waitingForFirstRender;
     Point dockPosition, floatingPosition;
     double reveal = 1, transitionFrom = 1, transitionTo = 1;
+    double motionVelocity, transitionVelocity;
+    TimeSpan lastRenderingTime = TimeSpan.MinValue;
+    (int X, int Y, int Width, int Height)? lastTransitionPlacement;
+    string? edgeVisualSide;
+    readonly record struct DockRegionStamp(int X, int Y, int Width, int Height, int Radius, Rect? Cutout, double Scale, bool Empty = false);
+    DockRegionStamp? lastDockRegion;
     int motionFrames;
     readonly StackPanel fixedList = new(), recentList = new();
     readonly TextBlock status = Ui.Text("准备就绪", 11, Ui.Muted);
@@ -59,7 +65,6 @@ public sealed partial class MainWindow : Window
     bool initialized, renderPending;
     IntPtr previousForeground;
     const double PanelWidth = 300;
-    double transitionDurationMs = 220;
     double desiredHeight = 300;
     readonly ScrollViewer folderScroll = new();
 
@@ -566,6 +571,9 @@ public sealed partial class MainWindow : Window
         hideTimer.Stop();
         var destination = expand ? 1d : 0d;
         if (animating && transitionTo == destination) return;
+        transitionVelocity = animating ? motionVelocity : 0;
+        lastRenderingTime = TimeSpan.MinValue;
+        lastTransitionPlacement = null;
         collapsed = !expand;
         transitionFrom = reveal; transitionTo = destination;
         surface.IsHitTestVisible = false;
@@ -587,8 +595,6 @@ public sealed partial class MainWindow : Window
             if (animate ?? SystemParameters.ClientAreaAnimation) EnsureEdgeWindow().WarmBehind(handle, store.State.Side, host, EdgeSourceBounds());
             else EnsureEdgeWindow().PrepareAt(handle, store.State.Side);
         }
-        // Keep a consistent pace when an in-flight transition reverses.
-        transitionDurationMs = (expand ? 220 : 240) * Math.Abs(transitionTo - transitionFrom);
         CompositionTarget.Rendering -= AnimateDock;
         if (!(animate ?? SystemParameters.ClientAreaAnimation))
         {
@@ -606,26 +612,42 @@ public sealed partial class MainWindow : Window
         var bounds = Native.WindowBounds(handle);
         var x = dockPosition.X + (floatingPosition.X - dockPosition.X) * reveal;
         var y = dockPosition.Y + (floatingPosition.Y - dockPosition.Y) * reveal;
-        Native.PositionDockWindow(handle, (int)Math.Round(x), (int)Math.Round(y), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+        var placement = ((int)Math.Round(x), (int)Math.Round(y), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+        if (lastTransitionPlacement != placement && Native.PositionDockWindow(handle, placement.Item1, placement.Item2, placement.Item3, placement.Item4))
+            lastTransitionPlacement = placement;
     }
-    internal static double DockEasing(double progress) => progress * progress * (3 - 2 * progress);
+    partial void BeginAnimationFrame();
+    partial void EndAnimationFrame();
     void AnimateDock(object? sender, EventArgs e)
     {
-        var firstFrame = waitingForFirstRender;
-        if (firstFrame) { waitingForFirstRender = false; slideClock.Restart(); }
-        var progress = firstFrame ? 0 : transitionDurationMs <= 0 ? 1 : Math.Clamp(slideClock.Elapsed.TotalMilliseconds / transitionDurationMs, 0, 1);
-        var eased = DockEasing(progress);
-        reveal = transitionFrom + (transitionTo - transitionFrom) * eased;
-        motionFrames++;
-        PositionTransition(); UpdateDockRegion(); if (floatingTransition) edgeWindow?.TrackBehind();
-        if (progress < 1) return;
-        // Keep the final panel frame until the replacement has produced content.
-        if (collapsed && edgeWindow is { HasRenderedContent: false }) return;
-        reveal = transitionTo; CompleteTransition();
+        if (!animating) return;
+        // WPF can raise Rendering again for the same composition frame after a
+        // layout invalidation. Only update HWNDs once for that frame.
+        if (e is RenderingEventArgs rendering)
+        {
+            if (rendering.RenderingTime == lastRenderingTime) return;
+            lastRenderingTime = rendering.RenderingTime;
+        }
+        BeginAnimationFrame();
+        try
+        {
+            var firstFrame = waitingForFirstRender;
+            if (firstFrame) { waitingForFirstRender = false; slideClock.Restart(); }
+            var frame = DockMotion.Sample(transitionFrom, transitionTo, transitionVelocity, firstFrame ? 0 : slideClock.Elapsed.TotalSeconds);
+            reveal = frame.Position; motionVelocity = frame.Velocity;
+            motionFrames++;
+            PositionTransition(); UpdateDockRegion(); if (floatingTransition) edgeWindow?.TrackBehind();
+            if (!frame.Complete) return;
+            // Keep the final panel frame until the replacement has produced content.
+            if (collapsed && edgeWindow is { HasRenderedContent: false }) return;
+            reveal = transitionTo; CompleteTransition();
+        }
+        finally { EndAnimationFrame(); }
     }
     void CompleteTransition()
     {
         animating = false; waitingForFirstRender = false;
+        motionVelocity = 0;
         CompositionTarget.Rendering -= AnimateDock; slideClock.Stop();
         surface.IsHitTestVisible = !collapsed;
         if (edgeButton != null) edgeButton.IsHitTestVisible = collapsed;
@@ -666,25 +688,37 @@ public sealed partial class MainWindow : Window
         panelSlide.X = horizontal ? 0 : Math.Round((store.State.Side == "left" ? -1 : 1) * (ActualWidth - visibleWidth) * dpi.DpiScaleX) / dpi.DpiScaleX;
         panelSlide.Y = horizontal ? Math.Round((store.State.Side == "top" ? -1 : 1) * (ActualHeight - visibleHeight) * dpi.DpiScaleY) / dpi.DpiScaleY : 0;
         var edgeReveal = Math.Clamp((.22 - reveal) / .22, 0, 1);
+        var sourceBounds = collapsed && (edgeReveal > 0 || edgeWindow?.TailActive == true) ? EdgeSourceBounds() : Rect.Empty;
         if (edgeButton != null)
         {
-            edgeButton.Width = horizontal ? 56 : 28; edgeButton.Height = horizontal ? 28 : 56;
-            edgePresentation.Width = edgeButton.Width; edgePresentation.Height = edgeButton.Height;
-            EdgeHandle.ApplyDockSide(edgePresentation, store.State.Side);
-            edgeButton.HorizontalAlignment = horizontal ? HorizontalAlignment.Center : store.State.Side == "left" ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-            edgeButton.VerticalAlignment = horizontal ? store.State.Side == "top" ? VerticalAlignment.Top : VerticalAlignment.Bottom : VerticalAlignment.Center;
+            if (edgeVisualSide != store.State.Side)
+            {
+                edgeButton.Width = horizontal ? 56 : 28; edgeButton.Height = horizontal ? 28 : 56;
+                edgePresentation.Width = edgeButton.Width; edgePresentation.Height = edgeButton.Height;
+                EdgeHandle.ApplyDockSide(edgePresentation, store.State.Side);
+                edgeButton.HorizontalAlignment = horizontal ? HorizontalAlignment.Center : store.State.Side == "left" ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+                edgeButton.VerticalAlignment = horizontal ? store.State.Side == "top" ? VerticalAlignment.Top : VerticalAlignment.Bottom : VerticalAlignment.Center;
+                edgeVisualSide = store.State.Side;
+            }
             edgeButton.Opacity = collapsed && edgeWindow?.HasRenderedContent == true && (animating || edgeWindow.TailActive) ? 0 : edgeReveal;
-            if (collapsed && animating) edgeWindow?.SetTailMix(edgeReveal, EdgeSourceBounds());
+            if (collapsed && animating && !sourceBounds.IsEmpty) edgeWindow?.SetTailMix(edgeReveal, sourceBounds);
         }
         if (collapsed && reveal == 0 && edgeWindow?.TailActive == true)
         {
-            Native.SetEmptyVisibleRegion(handle);
+            ApplyDockRegion(new(0, 0, 0, 0, 0, null, 1, true));
             return;
         }
-        Native.SetVisibleRegion(handle, (int)Math.Round(x * dpi.DpiScaleX), (int)Math.Round(y * dpi.DpiScaleY),
+        ApplyDockRegion(new((int)Math.Round(x * dpi.DpiScaleX), (int)Math.Round(y * dpi.DpiScaleY),
             (int)Math.Ceiling(visibleWidth * dpi.DpiScaleX), (int)Math.Ceiling(visibleHeight * dpi.DpiScaleY),
             (int)Math.Round((collapsed ? 8 + 12 * edgeReveal : 8) * dpi.DpiScaleX),
-            collapsed && edgeWindow?.TailActive == true ? EdgeSourceBounds() : null, dpi.DpiScaleX);
+            collapsed && edgeWindow?.TailActive == true ? sourceBounds : null, dpi.DpiScaleX));
+    }
+    void ApplyDockRegion(DockRegionStamp region)
+    {
+        if (lastDockRegion == region) return;
+        var applied = region.Empty ? Native.SetEmptyVisibleRegion(handle) : Native.SetVisibleRegion(handle,
+            region.X, region.Y, region.Width, region.Height, region.Radius, region.Cutout, region.Scale);
+        if (applied) lastDockRegion = region;
     }
     void Place()
     {

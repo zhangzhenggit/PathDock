@@ -15,6 +15,8 @@ internal sealed partial class EdgeWindow : Window
     Point? dragOrigin;
     bool dragging, warming;
     bool tailActive;
+    (int X, int Y, int Width, int Height, bool Behind)? lastPlacement;
+    string? visualSide;
     readonly System.Windows.Shapes.Rectangle tailBackdrop = new() { IsHitTestVisible = false };
     public bool TailActive => tailActive;
     public void SetTailMix(double amount, Rect sourceBounds)
@@ -82,6 +84,7 @@ internal sealed partial class EdgeWindow : Window
     void BeginDragVisual()
     {
         dragging = true;
+        visualSide = null; lastPlacement = null;
         shell.CornerRadius = new CornerRadius(10); shell.BorderThickness = new Thickness(1);
     }
     void MoveDragTo(Point cursor)
@@ -91,7 +94,7 @@ internal sealed partial class EdgeWindow : Window
         var size = (int)Math.Round(44 * scale);
         Native.PositionDockWindow(handle, (int)Math.Round(cursor.X - size / 2d), (int)Math.Round(cursor.Y - size / 2d), size, size);
     }
-    void StopDragVisual() => dragging = false;
+    void StopDragVisual() { dragging = false; lastPlacement = null; }
     public void PrepareAt(IntPtr mainWindow, string dockSide)
     {
         anchor = mainWindow; side = dockSide;
@@ -104,18 +107,17 @@ internal sealed partial class EdgeWindow : Window
         tailBackdrop.Fill = new VisualBrush(source) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = sourceBounds, Stretch = Stretch.Fill };
         tailBackdrop.Opacity = 1; shell.Opacity = 0;
         PrepareAt(mainWindow, dockSide);
-        if (!IsVisible) Show();
-        PositionAtAnchor();
+        if (!IsVisible) { Show(); PositionAtAnchor(); }
     }
-    public void TrackBehind() { if (warming && IsVisible) PositionAtAnchor(); }
+    public void TrackBehind() { if (warming && IsVisible) PositionAtAnchor(false); }
     public void ShowAt(IntPtr mainWindow, string dockSide)
     {
         anchor = mainWindow; side = dockSide;
         if (handle == IntPtr.Zero) handle = new WindowInteropHelper(this).EnsureHandle();
         ClearTail(); warming = false; shell.IsEnabled = true; Topmost = true;
-        PositionAtAnchor(); if (!IsVisible) Show(); PositionAtAnchor();
+        PositionAtAnchor(); if (!IsVisible) { Show(); PositionAtAnchor(); }
     }
-    void PositionAtAnchor()
+    void PositionAtAnchor(bool force = true)
     {
         if (anchor == IntPtr.Zero || handle == IntPtr.Zero || !Native.IsWindow(anchor)) return;
         var bounds = Native.WindowBounds(anchor); var scale = Native.WindowScale(anchor);
@@ -124,8 +126,11 @@ internal sealed partial class EdgeWindow : Window
         var height = (int)Math.Round((horizontal ? 28 : 56) * scale);
         var x = horizontal ? bounds.Left + (int)Math.Round((bounds.Right - bounds.Left - width) / 2d) : side == "left" ? bounds.Left : bounds.Right - width;
         var y = horizontal ? side == "top" ? bounds.Top : bounds.Bottom - height : bounds.Top + (int)Math.Round((bounds.Bottom - bounds.Top - height) / 2d);
-        EdgeHandle.ApplyDockSide(shell, side);
-        if (warming && !tailActive) Native.PositionDockBehind(handle, anchor, x, y, width, height);
-        else Native.PositionDockWindow(handle, x, y, width, height);
+        if (visualSide != side) { EdgeHandle.ApplyDockSide(shell, side); visualSide = side; }
+        var placement = (x, y, width, height, warming && !tailActive);
+        if (!force && lastPlacement == placement) return;
+        var applied = placement.Item5 ? Native.PositionDockBehind(handle, anchor, x, y, width, height)
+            : Native.PositionDockWindow(handle, x, y, width, height);
+        if (applied) lastPlacement = placement;
     }
 }

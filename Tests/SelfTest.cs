@@ -25,12 +25,7 @@ internal static class SelfTest
                 monitor.Dispose();
             });
             DialogFollowChecks.Run(Test, Require, root);
-            Test("Dock easing starts gently and finishes without overshoot", () => {
-                Require(MainWindow.DockEasing(0) == 0 && MainWindow.DockEasing(1) == 1);
-                Require(MainWindow.DockEasing(.25) < .2 && MainWindow.DockEasing(.75) > .8);
-                var previous = 0d;
-                for (var i = 1; i <= 100; i++) { var value = MainWindow.DockEasing(i / 100d); Require(value >= previous && value <= 1); previous = value; }
-            });
+            DockMotionChecks.Run(Test, Require);
             Test("Nested collection batches persist once at outer completion", () => {
                 var store = new DockStore(Path.Combine(root, "batch"), false);
                 var before = File.ReadAllText(store.StateFile);

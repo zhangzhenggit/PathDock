@@ -17,6 +17,7 @@ public sealed partial class MainWindow
         var independentEdgeVisible = true; var dragVisualCorrect = true;
         var coveredPreparationCorrect = true; var warmInvokeRejected = false; var edgeStyleCorrect = true; var firstExpandedFrameCorrect = true;
         var monitorPlacementCorrect = true; var collapsedMeasurementCorrect = true;
+        var unchangedGeometrySkipsNativeUpdates = true;
         var sizeFailures = new System.Collections.Generic.List<object>();
         async Task Settle()
         {
@@ -43,6 +44,10 @@ public sealed partial class MainWindow
                 await Task.Delay(10);
             }
             if (animating) throw new TimeoutException("Animation did not complete.");
+            UpdateDockRegion();
+            var regionUpdates = Native.VisibleRegionUpdates;
+            for (var i = 0; i < 8; i++) UpdateDockRegion();
+            unchangedGeometrySkipsNativeUpdates &= Native.VisibleRegionUpdates == regionUpdates;
             completions++;
         }
         var originalFloating = store.State.FloatingPanel; var originalPanelX = store.State.PanelX; var originalPanelY = store.State.PanelY;
@@ -193,6 +198,9 @@ public sealed partial class MainWindow
         }
         store.State.FloatingPanel = originalFloating; store.State.PanelX = originalPanelX; store.State.PanelY = originalPanelY;
         store.State.HorizontalRatio = originalHorizontal; store.State.VerticalRatio = originalVertical; store.State.Side = originalSide; store.State.ScreenX = originalX; store.State.ScreenY = originalY; Place();
-        return new { Passed = handoffWaitsForContent && coveredPreparationCorrect && warmInvokeRejected && edgeStyleCorrect && firstExpandedFrameCorrect && rowReuseCorrect && accessibleEdgeCorrect && disabledAnimationCorrect && recentLimitCorrect && openingStartsAtTop && titleDragCorrect && movingCollapseCorrect && floatingCorrect && collapsedMeasurementCorrect && dragVisualCorrect && stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, FirstExpandedFrameCorrect = firstExpandedFrameCorrect, HandoffWaitsForContent = handoffWaitsForContent, PreparedEdgeHandoffCorrect = coveredPreparationCorrect, WarmInvokeRejected = warmInvokeRejected, EdgePresentationMatches = edgeStyleCorrect, RowReuseAndDeferredUpdateCorrect = rowReuseCorrect, AccessibleEdgeInvokeCorrect = accessibleEdgeCorrect, DisabledAnimationCorrect = disabledAnimationCorrect, RecentLimitCorrect = recentLimitCorrect, OpeningStartsAtTop = openingStartsAtTop, TitleBlankAreaAndButtonExclusionCorrect = titleDragCorrect, FloatingCollapseMovesContinuously = movingCollapseCorrect, FloatingPanelAndExclusiveVisibilityCorrect = floatingCorrect, CollapsedStartupHeightCorrect = collapsedMeasurementCorrect, DragVisualAndFollowCorrect = dragVisualCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, ManualVisualSmoothnessVerified = false };
+        var idleFrames = motionFrames;
+        AnimateDock(null, EventArgs.Empty);
+        var noIdleAnimationUpdates = idleFrames == motionFrames;
+        return new { Passed = unchangedGeometrySkipsNativeUpdates && noIdleAnimationUpdates && handoffWaitsForContent && coveredPreparationCorrect && warmInvokeRejected && edgeStyleCorrect && firstExpandedFrameCorrect && rowReuseCorrect && accessibleEdgeCorrect && disabledAnimationCorrect && recentLimitCorrect && openingStartsAtTop && titleDragCorrect && movingCollapseCorrect && floatingCorrect && collapsedMeasurementCorrect && dragVisualCorrect && stable && collapsedRegionsCorrect && nativeFramesDisabled && menuCollapseWorks && independentEdgeVisible && monitorPlacementCorrect, FirstExpandedFrameCorrect = firstExpandedFrameCorrect, HandoffWaitsForContent = handoffWaitsForContent, PreparedEdgeHandoffCorrect = coveredPreparationCorrect, WarmInvokeRejected = warmInvokeRejected, EdgePresentationMatches = edgeStyleCorrect, RowReuseAndDeferredUpdateCorrect = rowReuseCorrect, AccessibleEdgeInvokeCorrect = accessibleEdgeCorrect, DisabledAnimationCorrect = disabledAnimationCorrect, RecentLimitCorrect = recentLimitCorrect, OpeningStartsAtTop = openingStartsAtTop, TitleBlankAreaAndButtonExclusionCorrect = titleDragCorrect, FloatingCollapseMovesContinuously = movingCollapseCorrect, FloatingPanelAndExclusiveVisibilityCorrect = floatingCorrect, CollapsedStartupHeightCorrect = collapsedMeasurementCorrect, DragVisualAndFollowCorrect = dragVisualCorrect, SizeFailures = sizeFailures, MonitorsTested = screens.Length, MonitorPlacementCorrect = monitorPlacementCorrect, IndependentEdgeVisibleAndReceivesPointer = independentEdgeVisible, MenuCollapseWorks = menuCollapseWorks, MenuState = menuState, Transitions = completions, RenderFrames = motionFrames - beforeFrames, StableWindowSizeAndHandleAndContent = stable, CollapsedSamples = collapsedSamples, CollapsedRegionMatchesHandle = collapsedRegionsCorrect, NativeNonClientFrameDisabled = nativeFramesDisabled, SystemFontSize = Ui.ExplorerFontSize, UnchangedGeometrySkipsNativeUpdates = unchangedGeometrySkipsNativeUpdates, NoIdleAnimationUpdates = noIdleAnimationUpdates, AnimationPerformance = AnimationMetrics(), ManualVisualSmoothnessVerified = false };
     }
 }

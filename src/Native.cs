@@ -14,6 +14,8 @@ public sealed record TargetWindow(IntPtr Handle, string Title, string ProcessNam
 
 internal static partial class Native
 {
+    static partial void RecordWindowPosition();
+    static partial void RecordRegionUpdate();
     [DllImport("user32.dll", SetLastError = true)] static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     public static void KeepAbove(IntPtr window) { if (window != IntPtr.Zero) SetWindowPos(window, new IntPtr(-1), 0, 0, 0, 0, 0x13); }
     [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr window);
@@ -29,10 +31,10 @@ internal static partial class Native
     {
         GetWindowRect(window, out var rect); return (rect.Left, rect.Top, rect.Right, rect.Bottom);
     }
-    public static void PositionDockWindow(IntPtr window, int left, int top, int width, int height)
-        => SetWindowPos(window, new IntPtr(-1), left, top, width, height, 0x10);
-    public static void PositionDockBehind(IntPtr window, IntPtr main, int left, int top, int width, int height)
-        => SetWindowPos(window, main, left, top, width, height, 0x10);
+    public static bool PositionDockWindow(IntPtr window, int left, int top, int width, int height)
+    { RecordWindowPosition(); return SetWindowPos(window, new IntPtr(-1), left, top, width, height, 0x10); }
+    public static bool PositionDockBehind(IntPtr window, IntPtr main, int left, int top, int width, int height)
+    { RecordWindowPosition(); return SetWindowPos(window, main, left, top, width, height, 0x10); }
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out RECT rect);
 
@@ -83,21 +85,26 @@ internal static partial class Native
     [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr window, IntPtr region, bool redraw);
     [DllImport("gdi32.dll", EntryPoint = "CreateRectRgn")] static extern IntPtr CreateDockCutoutRgn(int left, int top, int right, int bottom);
     [DllImport("gdi32.dll")] static extern int CombineRgn(IntPtr dest, IntPtr a, IntPtr b, int mode);
-    public static void SetEmptyVisibleRegion(IntPtr window)
+    public static bool SetEmptyVisibleRegion(IntPtr window)
     {
+        RecordRegionUpdate();
         var region = CreateDockCutoutRgn(0, 0, 0, 0);
-        if (region != IntPtr.Zero && SetWindowRgn(window, region, false) == 0) DeleteObject(region);
+        if (region == IntPtr.Zero) return false;
+        if (SetWindowRgn(window, region, false) != 0) return true;
+        DeleteObject(region); return false;
     }
-    public static void SetVisibleRegion(IntPtr window, int x, int y, int width, int height, int radius, Rect? cutout = null, double scale = 1)
+    public static bool SetVisibleRegion(IntPtr window, int x, int y, int width, int height, int radius, Rect? cutout = null, double scale = 1)
     {
+        RecordRegionUpdate();
         var region = CreateRoundRectRgn(x, y, x + Math.Max(1, width) + 1, y + Math.Max(1, height) + 1, radius, radius);
-        if (region == IntPtr.Zero) return;
+        if (region == IntPtr.Zero) return false;
         if (cutout is Rect hole)
         {
             var excluded = CreateDockCutoutRgn((int)Math.Round(hole.Left * scale), (int)Math.Round(hole.Top * scale), (int)Math.Round(hole.Right * scale), (int)Math.Round(hole.Bottom * scale));
             if (excluded != IntPtr.Zero) { CombineRgn(region, region, excluded, 4); DeleteObject(excluded); }
         }
-        if (SetWindowRgn(window, region, false) == 0) DeleteObject(region);
+        if (SetWindowRgn(window, region, false) != 0) return true;
+        DeleteObject(region); return false;
     }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct SHELLFILEINFO { public IntPtr Icon; public int IconIndex; public uint Attributes; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string DisplayName; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)] public string TypeName; }
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SHGetFileInfo(string path, uint attributes, out SHELLFILEINFO info, uint size, uint flags);
