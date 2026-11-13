@@ -36,10 +36,18 @@ internal static class IslandGeometryChecks
                 {
                     var current = IslandGeometry.Sample(300, 600, side, i / 100d);
                     require(current.Bounds.Width <= previous.Bounds.Width && current.Bounds.Height <= previous.Bounds.Height);
-                    require(current.Radius >= previous.Radius && current.Radius <= 14);
+                    require(current.Radius >= 10 && current.Radius <= Math.Min(current.Bounds.Width, current.Bounds.Height) / 2);
                     require(current.Bounds.Left >= previous.Bounds.Left && current.Bounds.Top >= previous.Bounds.Top);
                     previous = current;
                 }
+            }
+        });
+        test("Early expansion retains a capsule silhouette", () => {
+            foreach (var side in new[] { "left", "right", "top", "bottom" })
+            foreach (var amount in new[] { 0d, .005, .01, .025, .1, .2 })
+            {
+                var frame = IslandGeometry.Sample(300, 600, side, amount);
+                require(frame.Radius > Math.Min(frame.Bounds.Width, frame.Bounds.Height) * .48);
             }
         });
         test("Island content dissolves before the destination icon becomes dominant", () => {

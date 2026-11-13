@@ -25,6 +25,8 @@ internal static class IslandGeometry
             target.Width + (width - target.Width) * t, target.Height + (height - target.Height) * t);
         var sharp = Smooth((t - .24) / .48);
         var soft = (1 - sharp) * Smooth((t - .08) / .32);
-        return new(bounds, 14 - 4 * t, sharp, soft, 1 - Smooth((t - .025) / .18));
+        var capsuleRadius = Math.Min(bounds.Width, bounds.Height) / 2;
+        var radius = capsuleRadius + (10 - capsuleRadius) * Smooth((t - .2) / .4);
+        return new(bounds, radius, sharp, soft, 1 - Smooth((t - .025) / .18));
     }
 }

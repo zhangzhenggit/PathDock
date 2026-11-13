@@ -12,12 +12,14 @@ public sealed partial class MainWindow
     bool islandActive, islandCovered, islandUnavailable;
     Point islandExpandedPosition, islandDockPosition;
     int islandSnapshotCount;
+    partial void RecordIslandPreparation(double captureMs, double preparationMs);
     bool BeginIslandTransition()
     {
         if (islandActive && islandWindow?.HasSnapshot == true) return true;
         if (islandUnavailable || SystemParameters.HighContrast || (RenderCapability.Tier >> 16) < 2) return false;
         try
         {
+            var preparationStarted = Stopwatch.GetTimestamp();
             var bounds = Native.WindowBounds(handle);
             var scale = Native.WindowScale(handle);
             var width = (int)Math.Round(ActualWidth * scale); var height = (int)Math.Round(ActualHeight * scale);
@@ -33,13 +35,17 @@ public sealed partial class MainWindow
                 bitmap.Render(drawing); bitmap.Freeze(); snapshot = bitmap;
             }
             finally { surface.RenderTransform = transform; }
+            var captureMs = Stopwatch.GetElapsedTime(preparationStarted).TotalMilliseconds;
             islandSnapshotCount++;
             islandExpandedPosition = floatingTransition ? floatingPosition : new Point(bounds.Left, bounds.Top);
             islandDockPosition = floatingTransition ? dockPosition : islandExpandedPosition;
             islandWindow ??= new IslandWindow();
-            islandWindow.Prepare(snapshot, ActualWidth, ActualHeight, scale, store.State.Side);
+            var edge = EnsureEdgeWindow();
+            edge.PrepareAt(handle, store.State.Side);
+            islandWindow.Prepare(snapshot, ActualWidth, ActualHeight, scale, store.State.Side, edge.CaptureCapsule());
             islandActive = true; islandCovered = false;
             PresentIslandFrame();
+            RecordIslandPreparation(captureMs, Stopwatch.GetElapsedTime(preparationStarted).TotalMilliseconds);
             return true;
         }
         catch (Exception error)

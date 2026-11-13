@@ -35,13 +35,17 @@ internal sealed class IslandWindow : Window
         SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; Native.PassThrough(this); };
         Closed += (_, _) => { CompositionTarget.Rendering -= FinishHandoff; CompositionTarget.Rendering -= WatchPresentation; scene.Release(); };
     }
-    public void Prepare(BitmapSource snapshot, double width, double height, double dpiScale, string dockSide)
+    public void Prepare(BitmapSource snapshot, double width, double height, double dpiScale, string dockSide, BitmapSource capsule)
     {
         CompositionTarget.Rendering -= FinishHandoff; remainingHandoffFrames = 0;
         panelWidth = width; panelHeight = height; scale = dpiScale; side = dockSide;
         scene.Snapshot = snapshot;
-        var soft = new TransformedBitmap(snapshot, new ScaleTransform(.16, .16)); soft.Freeze();
-        scene.SoftSnapshot = soft;
+        scene.Capsule = capsule;
+        var soft = new TransformedBitmap(snapshot, new ScaleTransform(.16, .16));
+        var stride = soft.PixelWidth * 4;
+        var pixels = new byte[stride * soft.PixelHeight]; soft.CopyPixels(pixels, stride, 0);
+        var materialized = BitmapSource.Create(soft.PixelWidth, soft.PixelHeight, soft.DpiX, soft.DpiY, PixelFormats.Pbgra32, null, pixels, stride);
+        materialized.Freeze(); scene.SoftSnapshot = materialized;
         drawingDirty = true;
         scene.Width = width + ScenePadding * 2; scene.Height = height + ScenePadding * 2;
         Width = scene.Width; Height = scene.Height;
@@ -94,6 +98,20 @@ internal sealed class IslandWindow : Window
         remainingHandoffFrames = 0; HasPresented = false;
         Hide(); scene.Release();
     }
+    public void Prewarm()
+    {
+        if (IsVisible || HasSnapshot) return;
+        var bitmap = BitmapSource.Create(32, 32, 96, 96, PixelFormats.Pbgra32, null, new byte[32 * 32 * 4], 32 * 4);
+        bitmap.Freeze();
+        Prepare(bitmap, 32, 56, 1, "right", bitmap);
+        scene.Measure(new Size(56, 80)); scene.Arrange(new Rect(0, 0, 56, 80));
+        foreach (var amount in new[] { 1d, .5, 0 })
+        {
+            scene.Frame = IslandGeometry.Sample(32, 56, "right", amount); scene.DrawFrame();
+            var target = new RenderTargetBitmap(56, 80, 96, 96, PixelFormats.Pbgra32); target.Render(scene);
+        }
+        Cancel();
+    }
     void FinishHandoff(object? sender, EventArgs e)
     {
         if (e is RenderingEventArgs frame)
@@ -112,33 +130,31 @@ internal sealed class IslandWindow : Window
         public IslandVisual() { AddVisualChild(drawing); }
         protected override int VisualChildrenCount => 1;
         protected override Visual GetVisualChild(int index) => index == 0 ? drawing : throw new ArgumentOutOfRangeException(nameof(index));
-        public BitmapSource? Snapshot, SoftSnapshot;
+        public BitmapSource? Snapshot, SoftSnapshot, Capsule;
         public IslandFrame Frame;
         readonly RectangleGeometry clip = new();
-        static readonly Pen outline = FrozenPen("#D7DBE2", 1);
-        static readonly Pen capsuleOutline = FrozenPen("#34363B", 1);
         static readonly Brush shadowOuter = FrozenBrush(5), shadowMiddle = FrozenBrush(9), shadowInner = FrozenBrush(12);
-        static Pen FrozenPen(string color, double width) { var pen = new Pen(Ui.Brush(color), width); pen.Freeze(); return pen; }
         static Brush FrozenBrush(byte alpha) { var brush = new SolidColorBrush(Color.FromArgb(alpha, 22, 30, 42)); brush.Freeze(); return brush; }
-        public void Release() { Snapshot = null; SoftSnapshot = null; using var context = drawing.RenderOpen(); }
+        public void Release() { Snapshot = null; SoftSnapshot = null; Capsule = null; using var context = drawing.RenderOpen(); }
         public void DrawFrame()
         {
             using var context = drawing.RenderOpen();
             if (Snapshot == null) return;
             var rect = Frame.Bounds; rect.Offset(ScenePadding, ScenePadding);
+            if (Frame.IconOpacity == 1)
+            {
+                context.DrawImage(Capsule, rect);
+                return;
+            }
             // Small fixed shadow rings, not a live blur over a full window.
             context.PushOpacity(4 * Frame.SharpOpacity * (1 - Frame.SharpOpacity));
             var shadow = rect; shadow.Inflate(6, 6); context.DrawRoundedRectangle(shadowOuter, null, shadow, Frame.Radius + 6, Frame.Radius + 6);
             shadow = rect; shadow.Inflate(3, 3); context.DrawRoundedRectangle(shadowMiddle, null, shadow, Frame.Radius + 3, Frame.Radius + 3);
             shadow = rect; shadow.Inflate(1, 1); context.DrawRoundedRectangle(shadowInner, null, shadow, Frame.Radius + 1, Frame.Radius + 1);
             context.Pop();
-            context.DrawRoundedRectangle(Ui.PanelBackground, null, rect, Frame.Radius, Frame.Radius);
-            if (Frame.IconOpacity > 0)
-            {
-                context.PushOpacity(Frame.IconOpacity);
-                context.DrawRoundedRectangle(Ui.EdgeBackground, null, rect, Frame.Radius, Frame.Radius);
-                context.Pop();
-            }
+            var blend = Frame.IconOpacity;
+            var fill = new SolidColorBrush(Color.FromRgb((byte)(251 - 219 * blend), (byte)(251 - 218 * blend), (byte)(252 - 215 * blend)));
+            context.DrawRoundedRectangle(fill, null, rect, Frame.Radius, Frame.Radius);
             clip.Rect = rect; clip.RadiusX = clip.RadiusY = Frame.Radius;
             context.PushClip(clip);
             if (Frame.SoftOpacity > 0) { context.PushOpacity(Frame.SoftOpacity); context.DrawImage(SoftSnapshot, rect); context.Pop(); }
@@ -151,13 +167,8 @@ internal sealed class IslandWindow : Window
             }
             context.Pop();
             var border = rect; border.Inflate(-.5, -.5);
-            context.DrawRoundedRectangle(null, outline, border, Frame.Radius - .5, Frame.Radius - .5);
-            if (Frame.IconOpacity > 0)
-            {
-                context.PushOpacity(Frame.IconOpacity);
-                context.DrawRoundedRectangle(null, capsuleOutline, border, Frame.Radius - .5, Frame.Radius - .5);
-                context.Pop();
-            }
+            var borderBrush = new SolidColorBrush(Color.FromRgb((byte)(215 - 163 * blend), (byte)(219 - 165 * blend), (byte)(226 - 167 * blend)));
+            context.DrawRoundedRectangle(null, new Pen(borderBrush, 1), border, Frame.Radius - .5, Frame.Radius - .5);
         }
     }
 }

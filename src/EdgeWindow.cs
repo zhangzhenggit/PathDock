@@ -18,6 +18,19 @@ internal sealed partial class EdgeWindow : Window
     (int X, int Y, int Width, int Height, bool Behind)? lastPlacement;
     string? visualSide;
     public bool TailActive => tailActive;
+    internal System.Windows.Media.Imaging.BitmapSource CaptureCapsule()
+    {
+        var opacity = shell.Opacity;
+        try
+        {
+            shell.Opacity = 1; shell.UpdateLayout();
+            var dpi = VisualTreeHelper.GetDpi(shell);
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Round(shell.ActualWidth * dpi.DpiScaleX),
+                (int)Math.Round(shell.ActualHeight * dpi.DpiScaleY), 96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, PixelFormats.Pbgra32);
+            bitmap.Render(shell); bitmap.Freeze(); return bitmap;
+        }
+        finally { shell.Opacity = opacity; }
+    }
     public void SuspendInput() => shell.IsEnabled = false;
     public void KeepOpeningCover() { Topmost = true; Native.KeepAbove(handle); }
     public void RevealHandle()
@@ -87,7 +100,7 @@ internal sealed partial class EdgeWindow : Window
     {
         dragging = true;
         visualSide = null; lastPlacement = null;
-        shell.CornerRadius = new CornerRadius(10); shell.BorderThickness = new Thickness(1);
+        shell.CornerRadius = new CornerRadius(22); shell.BorderThickness = new Thickness(1);
     }
     void MoveDragTo(Point cursor)
     {

@@ -16,7 +16,7 @@ internal sealed partial class EdgeWindow
             immediate &= Math.Abs((actual.Left + actual.Right) / 2d - point.X) <= 1 && Math.Abs((actual.Top + actual.Bottom) / 2d - point.Y) <= 1;
         }
         await System.Threading.Tasks.Task.Delay(50);
-        var floating = shell.CornerRadius == new CornerRadius(10) && shell.BorderThickness == new Thickness(1) && shell.Effect == null && dragging;
+        var floating = shell.CornerRadius == new CornerRadius(22) && shell.BorderThickness == new Thickness(1) && shell.Effect == null && dragging;
 
         var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(ActualWidth * 2), (int)Math.Ceiling(ActualHeight * 2), 192, 192, System.Windows.Media.PixelFormats.Pbgra32);
         bitmap.Render(this);

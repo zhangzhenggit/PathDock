@@ -100,9 +100,17 @@ public sealed partial class MainWindow : Window
             if (!preview && store.State.FollowFileDialogs) { try { SetDialogFollow(true); } catch (Exception ex) { Toast(ex.Message, true); } }
             if (collapsed) ShowEdgeWindow();
             if (store.RecoveryNotice != null) Toast(store.RecoveryNotice);
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => {
+                if (exiting || animating || islandWindow != null || SystemParameters.HighContrast || (RenderCapability.Tier >> 16) < 2) return;
+                try {
+                    var edge = EnsureEdgeWindow(); edge.PrepareAt(handle, store.State.Side); _ = edge.CaptureCapsule();
+                    islandWindow = new IslandWindow(); islandWindow.Prewarm();
+                }
+                catch (Exception error) { Trace.WriteLine("PathDock animation prewarm skipped: " + error); }
+            }));
             if (!preview) await CollectRecent();
         };
-        targetTimer.Tick += (_, _) => { TrackTarget(); TryRenderPending(); };
+        targetTimer.Tick += (_, _) => { if (!animating) { TrackTarget(); TryRenderPending(); } };
         recentTimer.Tick += async (_, _) => { if (!preview) await CollectRecent(); };
         hideTimer.Tick += (_, _) => { hideTimer.Stop(); if (!store.State.KeepOpen && !dialogOpen && menuDepth == 0 && !draggingPanel) Collapse(); };
         outsideHideTimer.Tick += (_, _) => {

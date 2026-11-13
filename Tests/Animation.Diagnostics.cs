@@ -15,6 +15,8 @@ internal static partial class Native
 public sealed partial class MainWindow
 {
     readonly List<double> animationFrameTimes = new(2048);
+    readonly List<object> islandPreparationTimes = new();
+    partial void RecordIslandPreparation(double captureMs, double preparationMs) => islandPreparationTimes.Add(new { CaptureMs = captureMs, TotalMs = preparationMs });
     long animationFrameStarted, animationFrameAllocated, animationAllocatedBytes;
     partial void BeginAnimationFrame()
     {
@@ -36,6 +38,7 @@ public sealed partial class MainWindow
             MaxCpuMs = sorted.Length == 0 ? 0 : sorted[^1],
             AllocatedBytes = animationAllocatedBytes,
             Native.WindowPositionUpdates, Native.VisibleRegionUpdates,
+            IslandPreparation = islandPreparationTimes.ToArray(),
             Scope = "UI animation callback only; excludes GPU presentation and idle polling"
         };
     }
