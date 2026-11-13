@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace PathDock;
 
@@ -40,6 +41,11 @@ public sealed class DockStore
 {
     int batchDepth;
     bool savePending;
+    DeferredFileWriter? writer;
+    static readonly JsonSerializerOptions saveOptions = new() { WriteIndented = true };
+    public event Action<Exception>? SaveFailed;
+    public void EnableBackgroundSaving() => writer ??= new DeferredFileWriter(StateFile, ex => SaveFailed?.Invoke(ex));
+    public Task FlushAsync() => writer?.FlushAsync() ?? Task.CompletedTask;
     public string Root { get; }
     public string StateFile => System.IO.Path.Combine(Root, "settings.json");
     public DockState State { get; private set; }
@@ -140,9 +146,9 @@ public sealed class DockStore
     {
         if (batchDepth > 0) { savePending = true; return; }
 
-        var temporary = StateFile + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(State, new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(temporary, StateFile, true);
+        var snapshot = JsonSerializer.Serialize(State, saveOptions);
+        if (writer != null) { writer.Enqueue(snapshot); }
+        else DeferredFileWriter.Write(StateFile, snapshot);
         savePending = false;
     }
 }

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -42,12 +41,16 @@ public sealed partial class MainWindow : Window
     readonly DispatcherTimer recentTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     readonly DispatcherTimer hideTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     readonly DispatcherTimer toastTimer = new() { Interval = TimeSpan.FromSeconds(4) };
-    readonly Dictionary<string, DateTime> activitySeen = new();
+    readonly RecentActivityReader activityReader = new();
+    Task<List<RecentActivity>>? activityRead;
+    List<ShellSession> availableSessions = new();
+    Task<List<ShellSession>>? sessionRead;
     HashSet<string> explorerSeen = new(StringComparer.OrdinalIgnoreCase);
     Task<List<string>>? explorerRead;
     Forms.NotifyIcon? tray;
     TargetWindow? target;
     bool collapsed, dialogOpen, polling, exiting;
+    bool performing;
     int menuDepth;
     readonly HashSet<ContextMenu> openMenus = new();
     Button? pin;
@@ -63,6 +66,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(DockStore store, bool preview, bool startCollapsed = false)
     {
         this.store = store; this.preview = preview;
+        store.SaveFailed += error => Dispatcher.BeginInvoke(new Action(() => { if (!exiting) Toast("配置保存失败：" + error.Message, true); }));
         Title = "PathDock"; Width = 300; Height = 300; MinWidth = 0; MinHeight = 0;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize; Background = Ui.Canvas;
         Topmost = true; ShowInTaskbar = false; ShowActivated = false; FontFamily = SystemFonts.MessageFontFamily;
@@ -108,7 +112,7 @@ public sealed partial class MainWindow : Window
     void RestartHideTimer()
     {
         hideTimer.Stop();
-        if (!collapsed && !animating && !store.State.KeepOpen && !dialogOpen && menuDepth == 0 && !draggingPanel) hideTimer.Start();
+        if (!collapsed && !animating && !performing && !store.State.KeepOpen && !dialogOpen && menuDepth == 0 && !draggingPanel) hideTimer.Start();
     }
     void OutsideClick(int x, int y)
     {
@@ -265,8 +269,8 @@ public sealed partial class MainWindow : Window
         pasteHint.Children.Add(Ui.Text("仅粘贴路径，不自动回车。", Ui.ExplorerFontSize, Ui.Muted));
         var paste = new MenuItem { Header = "粘贴路径", Icon = Ui.Icon("\uE77F", 14), IsEnabled = destination != null, Padding = new Thickness(10, 6, 10, 6), ToolTip = new ToolTip { Content = pasteHint, MaxWidth = 284 } };
         paste.Click += async (_, _) => await Perform(item, "insert", null, destination); menu.Items.Add(paste);
-        AddAction(menu, "复制路径", () => { Copy(item.Path); return Task.CompletedTask; }, glyph: "\uE8C8");
-        var sessions = Services.Sessions(store.Root);
+        AddAction(menu, "复制路径", () => Copy(item.Path), glyph: "\uE8C8");
+        var sessions = availableSessions;
         if (sessions.Count > 0)
         {
             menu.Items.Add(new Separator());
@@ -274,7 +278,7 @@ public sealed partial class MainWindow : Window
             foreach (var session in sessions)
             {
                 var captured = session; var entry = new MenuItem { Header = new TextBlock { Text = $"{session.TitleMarker}  {session.Cwd}", MaxWidth = 300, TextTrimming = TextTrimming.CharacterEllipsis }, ToolTip = $"选择标题中有 {session.TitleMarker} 的终端。" };
-                entry.Click += async (_, _) => { try { await Services.SwitchSession(store.Root, captured, item.Path); store.Visit(item.Path, "PowerShell"); Render(); Toast("已切换所选 PowerShell 会话"); } catch (Exception ex) { Toast(ex.Message, true); } }; submenu.Items.Add(entry);
+                entry.Click += async (_, _) => await SwitchSelectedSession(captured, item); submenu.Items.Add(entry);
             }
             menu.Items.Add(submenu);
         }
@@ -304,6 +308,9 @@ public sealed partial class MainWindow : Window
     }
     async Task Perform(FolderEntry item, string action, FrameworkElement? anchor, TargetWindow? destination)
     {
+        if (performing) { Toast("正在处理，请稍候再试"); return; }
+        performing = true;
+        hideTimer.Stop();
         try
         {
             InputObservation? automaticFocus = null;
@@ -313,7 +320,7 @@ public sealed partial class MainWindow : Window
                 if (current != null) destination = current;
                 if (destination?.IsTerminal == true)
                 {
-                    var session = Services.MatchSession(store.Root, destination);
+                    var session = await Task.Run(() => Services.MatchSession(store.Root, destination));
                     if (session != null && Native.GetForegroundWindow() == destination.Handle)
                     {
                         await Services.SwitchSession(store.Root, session, item.Path, destination);
@@ -336,9 +343,15 @@ public sealed partial class MainWindow : Window
                 Native.EnsurePasteAllowed(destination);
                 var now = Native.GetForegroundWindow();
                 if (now != destination.Handle && now != handle) throw new InvalidOperationException("目标已变化，请重新选择后再插入。");
-                Clipboard.SetText(item.Path);
-                if (now != destination.Handle) Native.SetForegroundWindow(destination.Handle);
-                await Task.Delay(90);
+                await Services.SetClipboardText(item.Path);
+                if (exiting) return;
+                now = Native.GetForegroundWindow();
+                if (now != destination.Handle && now != handle) throw new InvalidOperationException("目标已变化，未插入；路径已复制。");
+                if (now != destination.Handle)
+                {
+                    Native.SetForegroundWindow(destination.Handle);
+                    await Task.Delay(90);
+                }
                 if (automaticFocus != null)
                 {
                     var confirmed = await AutoTarget.Observe(destination);
@@ -349,6 +362,7 @@ public sealed partial class MainWindow : Window
                 Toast("已发送路径粘贴，不回车 · 剪贴板保留该路径"); return;
             }
             var exists = await Task.Run(() => Directory.Exists(item.Path)).WaitAsync(TimeSpan.FromSeconds(3));
+            if (exiting) return;
             if (!exists) throw new DirectoryNotFoundException("目录不存在或暂时无法访问，可在菜单中修改路径。");
             ProcessStartInfo info;
             if (action == "terminal") { info = new("wt.exe") { UseShellExecute = true }; info.ArgumentList.Add("-w"); info.ArgumentList.Add("0"); info.ArgumentList.Add("new-tab"); info.ArgumentList.Add("-d"); info.ArgumentList.Add(item.Path); }
@@ -362,8 +376,30 @@ public sealed partial class MainWindow : Window
         }
         catch (TimeoutException ex) { Toast(ex.Message, true); }
         catch (Exception ex) { Toast(ex.Message, true); }
+        finally { performing = false; RestartHideTimer(); }
     }
-    void Copy(string path) { try { Clipboard.SetText(path); Toast("路径已复制"); } catch (Exception ex) { Toast(ex.Message, true); } }
+    async Task SwitchSelectedSession(ShellSession session, FolderEntry item)
+    {
+        if (performing) { Toast("正在处理，请稍候再试"); return; }
+        performing = true; hideTimer.Stop();
+        try
+        {
+            await Services.SwitchSession(store.Root, session, item.Path);
+            if (exiting) return;
+            store.Visit(item.Path, "PowerShell"); Render(); Toast("已切换所选 PowerShell 会话");
+        }
+        catch (Exception ex) { Toast(ex.Message, true); }
+        finally { performing = false; RestartHideTimer(); }
+    }
+    async Task Copy(string path)
+    {
+        if (performing) { Toast("正在处理，请稍候再试"); return; }
+        performing = true;
+        hideTimer.Stop();
+        try { await Services.SetClipboardText(path); Toast("路径已复制"); }
+        catch (Exception ex) { Toast(ex.Message, true); }
+        finally { performing = false; RestartHideTimer(); }
+    }
     void TrackTarget()
     {
         if (dialogOpen || menuDepth > 0) return;
@@ -389,34 +425,32 @@ public sealed partial class MainWindow : Window
         if (polling || exiting || animating) return; polling = true; var changed = false;
         try
         {
+            activityRead ??= Task.Run(() => activityReader.Read(store.Root));
+            if (sessionRead == null || sessionRead.IsCompleted) sessionRead = Task.Run(() => Services.Sessions(store.Root));
             var discovered = new List<string>();
             if (store.State.RecordRecent)
             {
                 if (explorerRead == null || explorerRead.IsCompleted) explorerRead = Services.ExplorerFolders();
-                var folders = await explorerRead.WaitAsync(TimeSpan.FromSeconds(2));
-                discovered = folders.Where(path => !explorerSeen.Contains(path)).ToList();
-                explorerSeen = new(folders, StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    var folders = await explorerRead.WaitAsync(TimeSpan.FromSeconds(2));
+                    discovered = folders.Where(path => !explorerSeen.Contains(path)).ToList();
+                    explorerSeen = new(folders, StringComparer.OrdinalIgnoreCase);
+                }
+                catch { /* A slow Explorer must not prevent collecting shell history. */ }
             }
+            var activities = await activityRead.WaitAsync(TimeSpan.FromSeconds(2));
+            activityRead = null;
+            try { availableSessions = await sessionRead.WaitAsync(TimeSpan.FromMilliseconds(100)); } catch { }
+            if (exiting) return;
             using (store.BatchUpdates())
             {
                 foreach (var path in discovered) changed |= store.Visit(path, "资源管理器 · 发现");
-                var directory = Path.Combine(store.Root, "activity");
-                if (Directory.Exists(directory)) foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
-                    {
-                        try
-                        {
-                            var stamp = File.GetLastWriteTimeUtc(file); if (activitySeen.TryGetValue(file, out var seen) && seen == stamp) continue; activitySeen[file] = stamp;
-                            using var document = JsonDocument.Parse(File.ReadAllText(file)); var root = document.RootElement;
-                            var utc = root.GetProperty("Utc").GetDateTimeOffset();
-                            var age = DateTimeOffset.UtcNow - utc;
-                            if (age >= TimeSpan.Zero && age < TimeSpan.FromDays(7)) changed |= store.Visit(root.GetProperty("Path").GetString()!, "PowerShell", utc);
-                        }
-                        catch { }
-                    }
+                foreach (var activity in activities) changed |= store.Visit(activity.Path, "PowerShell", activity.Time);
             }
             if (changed) { renderPending = true; TryRenderPending(); }
         }
-        catch { /* Optional source unavailable: keep existing data and UI responsive. */ }
+        catch { if (activityRead?.IsCompleted == true) activityRead = null; /* Retry optional sources on the next poll. */ }
         finally { polling = false; }
     }
     void EnableEditing() { Native.NoActivate(this, false); Activate(); Native.SetForegroundWindow(handle); }

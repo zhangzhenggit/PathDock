@@ -33,7 +33,10 @@ internal static class Program
         try
         {
             var store = new DockStore(root);
-            return app.Run(new MainWindow(store, false, startup && !store.State.KeepOpen));
+            store.SaveFailed += error => WriteError(root, error);
+            store.EnableBackgroundSaving();
+            try { return app.Run(new MainWindow(store, false, startup && !store.State.KeepOpen)); }
+            finally { store.FlushAsync().GetAwaiter().GetResult(); }
         }
         catch (Exception ex)
         {

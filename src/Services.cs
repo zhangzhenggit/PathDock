@@ -27,6 +27,7 @@ internal static class Services
 {
     internal static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
     static readonly SemaphoreSlim navigationGate = new(1, 1);
+    public static Task SetClipboardText(string text) => Sta(() => { System.Windows.Clipboard.SetText(text); return true; });
     public static async Task<string> RunPowerShell(string script, params string[] args)
     {
         var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe");
@@ -102,22 +103,25 @@ internal static class Services
     }
     static async Task SwitchSessionCore(string root, ShellSession session, string path, TargetWindow? target)
     {
-        var fresh = Sessions(root).FirstOrDefault(s => s.Id == session.Id && s.Generation == session.Generation);
+        var fresh = await Task.Run(() => Sessions(root).FirstOrDefault(s => s.Id == session.Id && s.Generation == session.Generation));
         if (fresh == null) throw new InvalidOperationException("会话状态已变化。请确认目标处于空提示符后重试。");
         var requestId = Guid.NewGuid().ToString("N");
         var request = Path.Combine(root, "requests", session.Id + ".json"); var reply = Path.Combine(root, "replies", requestId + ".json");
-        Directory.CreateDirectory(Path.GetDirectoryName(request)!); Directory.CreateDirectory(Path.GetDirectoryName(reply)!);
         var temporary = request + ".tmp";
         var lifetime = fresh.BridgeVersion < 2 ? 1200 : 2500;
-        File.WriteAllText(temporary, JsonSerializer.Serialize(new { Id = requestId, Session = session.Id, Generation = session.Generation, Path = path, ExpiresUtc = DateTimeOffset.UtcNow.AddMilliseconds(lifetime), RequireForeground = target != null, TargetWindow = target?.Handle.ToInt64() ?? 0, TargetTitle = target?.Title ?? "" }));
-        File.Move(temporary, request, true);
+        await Task.Run(() =>
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(request)!); Directory.CreateDirectory(Path.GetDirectoryName(reply)!);
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new { Id = requestId, Session = session.Id, Generation = session.Generation, Path = path, ExpiresUtc = DateTimeOffset.UtcNow.AddMilliseconds(lifetime), RequireForeground = target != null, TargetWindow = target?.Handle.ToInt64() ?? 0, TargetTitle = target?.Title ?? "" }));
+            File.Move(temporary, request, true);
+        });
         try
         {
             for (var i = 0; i < 30; i++)
             {
                 await Task.Delay(100);
                 if (!File.Exists(reply)) continue;
-                using var document = JsonDocument.Parse(File.ReadAllText(reply));
+                using var document = JsonDocument.Parse(await File.ReadAllTextAsync(reply));
                 var response = document.RootElement;
                 if (response.GetProperty("Result").GetString() != "Applied")
                 {

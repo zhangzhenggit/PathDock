@@ -17,6 +17,7 @@ internal static class SelfTest
         try
         {
             Directory.CreateDirectory(root);
+            ResponsivenessChecks.Run(Test, Require, root);
             Test("Mouse hook pumps messages while the calling UI thread waits", () => {
                 using var monitor = new OutsideClickMonitor((_, _) => { });
                 var probe = monitor.ProbeListener();
