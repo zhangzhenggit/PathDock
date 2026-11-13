@@ -26,6 +26,7 @@ internal static class SelfTest
             });
             DialogFollowChecks.Run(Test, Require, root);
             DockMotionChecks.Run(Test, Require);
+            IslandGeometryChecks.Run(Test, Require);
             Test("Nested collection batches persist once at outer completion", () => {
                 var store = new DockStore(Path.Combine(root, "batch"), false);
                 var before = File.ReadAllText(store.StateFile);

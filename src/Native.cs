@@ -151,6 +151,12 @@ internal static partial class Native
         var style = GetWindowLong(hwnd, -20).ToInt64();
         SetWindowLong(hwnd, -20, new IntPtr(enabled ? style | 0x08000000L : style & ~0x08000000L));
     }
+    public static void PassThrough(Window window)
+    {
+        var hwnd = new WindowInteropHelper(window).Handle;
+        var style = GetWindowLong(hwnd, -20).ToInt64();
+        SetWindowLong(hwnd, -20, new IntPtr(style | 0x08000020L));
+    }
     public static void EnsurePasteAllowed(TargetWindow target)
     {
         if (!IsWindow(target.Handle)) throw new InvalidOperationException("原窗口已关闭，请重新选择目标。");

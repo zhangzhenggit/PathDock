@@ -29,7 +29,9 @@ public sealed partial class MainWindow
             {
                 if (collapsed)
                 {
-                    coveredPreparationCorrect &= edgeWindow?.IsPreparedForHandoff == true;
+                    coveredPreparationCorrect &= islandActive
+                        ? islandWindow?.HasSnapshot == true && (islandCovered ? !IsVisible && edgeWindow?.IsVisible == false : IsVisible || openingHandleCover)
+                        : edgeWindow?.IsPreparedForHandoff == true;
                     if (!warmInvokeRejected) {
                         try { edgeWindow?.InvokeAccessibleButton(); }
                         catch (System.Windows.Automation.ElementNotEnabledException) { warmInvokeRejected = true; }
@@ -163,8 +165,10 @@ public sealed partial class MainWindow
         var handoffWaitsForContent = true;
         if (SystemParameters.ClientAreaAnimation && edgeWindow != null) {
             edgeWindow.SetRenderedStateForTest(false);
-            Collapse(); await Task.Delay(450);
-            handoffWaitsForContent &= animating && collapsed && IsVisible && edgeWindow.IsPreparedForHandoff;
+            Collapse(); await Task.Delay(650);
+            handoffWaitsForContent &= animating && collapsed && (islandActive
+                ? islandWindow?.IsVisible == true && !IsVisible && reveal == 0
+                : IsVisible && edgeWindow.IsPreparedForHandoff);
             edgeWindow.SetRenderedStateForTest(true); await Settle();
             handoffWaitsForContent &= !animating && !IsVisible && edgeWindow.IsPresent;
             Expand(); await Settle();
@@ -184,8 +188,11 @@ public sealed partial class MainWindow
             SavePanelPosition(); await Task.Delay(100); Render();
             var positioned = Native.WindowBounds(handle);
             floatingCorrect &= Math.Abs(positioned.Left - x) <= 1 && Math.Abs(positioned.Top - y) <= 1;
-            Collapse(); await Task.Delay(60);
-            var intermediate = Native.WindowBounds(handle);
+            Collapse();
+            var prepareTimeout = Stopwatch.StartNew();
+            while (islandActive && !islandCovered && prepareTimeout.ElapsedMilliseconds < 1000) await Task.Delay(10);
+            await Task.Delay(60);
+            var intermediate = islandActive ? islandWindow!.CardScreenBounds : new Rect(Native.WindowBounds(handle).Left, Native.WindowBounds(handle).Top, Width, Height);
             movingCollapseCorrect &= animating && (intermediate.Left != x || intermediate.Top != y)
                 && (Math.Abs(intermediate.Left - dockPosition.X) > 1 || Math.Abs(intermediate.Top - dockPosition.Y) > 1);
             await Settle();

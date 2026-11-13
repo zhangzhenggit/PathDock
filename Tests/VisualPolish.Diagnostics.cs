@@ -63,15 +63,13 @@ public sealed partial class MainWindow
             while (!collapsed && timeout.ElapsedMilliseconds < 1500) await Task.Delay(10);
             var applied = collapsed;
             while (animating && timeout.ElapsedMilliseconds < 2500) await Task.Delay(10);
-            var collapsedClean = !animating && headerGlow.Opacity == 0 && motionLight.Opacity == 0;
+            var collapsedClean = !animating && !islandActive;
             Expand(); timeout.Restart();
             var openingCoverSafe = !openingHandleCover || edgeWindow?.IsOpeningCoverSafe == true;
             while (animating && timeout.ElapsedMilliseconds < 2000) await Task.Delay(10);
-            var expandedClean = !animating && !collapsed && headerGlow.Opacity == 0 && motionLight.Opacity == 0;
+            var expandedClean = !animating && !collapsed && !islandActive;
             return openingCoverSafe && deferred && cancelled && applied && collapsedClean && expandedClean
-                && !headerGlow.IsHitTestVisible && !motionLight.IsHitTestVisible && motionLight.Effect == null && headerGlow.Effect == null && surface.Effect == null
-                && motionLight.Background.IsFrozen
-                && Ui.MotionGlow.IsFrozen && Ui.PanelBackground.IsFrozen && Ui.EdgeBackground.IsFrozen;
+                && surface.Effect == null && Ui.PanelBackground.IsFrozen && Ui.EdgeBackground.IsFrozen;
         }
         finally { outsideHideTimer.Stop(); store.State.KeepOpen = keepOpen; RestartHideTimer(); }
     }

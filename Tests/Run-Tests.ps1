@@ -17,9 +17,11 @@ try {
     if($LASTEXITCODE -ne 0){throw "$script failed."}
   }
   if(-not $SkipMotion){
-    $reports+=@('tail-test-results.json','motion-test-results.json')
+    $reports+=@('tail-test-results.json','island-test-results.json','motion-test-results.json')
     $process=Start-Process -FilePath $exe -ArgumentList @('--tail-test',('"'+(Join-Path $results 'tail-test-results.json')+'"')) -Wait -PassThru -WindowStyle Normal
     if($process.ExitCode -ne 0){throw 'Tail rendering tests failed.'}
+    $process=Start-Process -FilePath $exe -ArgumentList @('--island-test',('"'+(Join-Path $results 'island-test-results.json')+'"')) -Wait -PassThru -WindowStyle Normal
+    if($process.ExitCode -ne 0){throw 'Island transition tests failed.'}
     $process=Start-Process -FilePath $exe -ArgumentList @('--motion-test',('"'+(Join-Path $results 'motion-test-results.json')+'"')) -Wait -PassThru -WindowStyle Normal
     if($process.ExitCode -ne 0){throw 'Motion tests failed.'}
     $report=Get-Content (Join-Path $results 'motion-test-results.json') -Raw|ConvertFrom-Json

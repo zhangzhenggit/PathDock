@@ -11,7 +11,7 @@ internal static class Program
     public static int Main(string[] args)
     {
 #if PATHDOCK_DIAGNOSTICS
-        if (Array.Exists(args, value => value is "--tail-test" or "--self-test" or "--motion-test" or "--render-preview" or "--render-settings"))
+        if (Array.Exists(args, value => value is "--island-test" or "--tail-test" or "--self-test" or "--motion-test" or "--render-preview" or "--render-settings"))
             return DiagnosticRunner.Run(args);
 #endif
         var startup = Array.IndexOf(args, "--startup") >= 0;

@@ -20,9 +20,9 @@ internal static class DockMotionChecks
                     require(target == 1 ? frame.Position >= previous : frame.Position <= previous);
                     previous = frame.Position;
                 }
-                require(DockMotion.Sample(start, target, 0, .4).Complete);
+                require(DockMotion.Sample(start, target, 0, .45).Complete);
                 var earlyTravel = Math.Abs(DockMotion.Sample(start, target, 0, .05).Position - start);
-                require(earlyTravel > .08 && earlyTravel < .16);
+                require(earlyTravel > .04 && earlyTravel < .1);
                 require(!DockMotion.Sample(start, target, 0, .25).Complete);
             }
         });

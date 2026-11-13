@@ -20,7 +20,8 @@ internal static class DiagnosticRunner
         if (settingsCapture) captureIndex = Array.IndexOf(args, "--render-settings");
         var capture = captureIndex >= 0 && args.Length > captureIndex + 1 ? Path.GetFullPath(args[captureIndex + 1]) : null;
         var tail = Array.IndexOf(args, "--tail-test") >= 0;
-        var motionIndex = Array.IndexOf(args, tail ? "--tail-test" : "--motion-test");
+        var island = Array.IndexOf(args, "--island-test") >= 0;
+        var motionIndex = Array.IndexOf(args, island ? "--island-test" : tail ? "--tail-test" : "--motion-test");
         var motion = motionIndex >= 0 && args.Length > motionIndex + 1 ? Path.GetFullPath(args[motionIndex + 1]) : null;
         var transient = capture != null || motion != null;
         var preview = Array.IndexOf(args, "--preview") >= 0 || transient;
@@ -41,7 +42,7 @@ internal static class DiagnosticRunner
             var window = new MainWindow(store, preview, startup && !store.State.KeepOpen);
             if (motion != null) window.Loaded += async (_, _) => {
                 await Task.Delay(800);
-                var result = (tail ? await window.CheckTailRendering() : await window.CheckMotion());
+                var result = (island ? await window.CheckIsland() : tail ? await window.CheckTailRendering() : await window.CheckMotion());
                 File.WriteAllText(motion, System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                 if (System.Text.Json.JsonSerializer.SerializeToElement(result).GetProperty("Passed").GetBoolean()) window.Close();
                 else app.Shutdown(1);

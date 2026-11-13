@@ -32,14 +32,16 @@ internal sealed partial class EdgeWindow : Window
     {
         tailActive = false; shell.Opacity = 1;
     }
-    public bool HasRenderedContent { get; private set; }
+    bool hasRenderedContent;
+    partial void OverrideReadiness(ref bool ready);
+    public bool HasRenderedContent { get { var ready = hasRenderedContent; OverrideReadiness(ref ready); return ready; } }
     public EdgeWindow(Action expand, Action<int, int> dropped)
     {
         Title = "PathDock"; Width = 28; Height = 56;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false; ShowActivated = false; Topmost = true;
         AllowsTransparency = true; Background = Brushes.Transparent; Icon = AppIcon.Image;
-        ContentRendered += (_, _) => HasRenderedContent = true;
+        ContentRendered += (_, _) => hasRenderedContent = true;
         UseLayoutRounding = true;
         shell.Expand = expand;
         EdgeHandle.ConfigureVisual(shell);

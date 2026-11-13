@@ -39,7 +39,9 @@ internal sealed partial class EdgeWindow
         var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(shell)!;
         ((System.Windows.Automation.Provider.IInvokeProvider)peer.GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
     }
-    public void SetRenderedStateForTest(bool ready) => HasRenderedContent = ready;
+    bool? readinessOverride;
+    partial void OverrideReadiness(ref bool ready) { if (readinessOverride is bool value) ready = value; }
+    public void SetRenderedStateForTest(bool ready) => readinessOverride = ready;
     public bool IsPreparedForHandoff => warming && IsVisible && !shell.IsEnabled
         && (tailActive ? Native.IsAboveWindow(handle, anchor) : Native.CoveredByWindow(handle, anchor));
     public bool IsOpeningCoverSafe => IsVisible && !shell.IsEnabled;

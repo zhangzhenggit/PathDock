@@ -11,7 +11,7 @@ internal static class DockMotion
     {
         var distance = target - start;
         if (Math.Abs(distance) < 1e-7) return new(target, 0, true);
-        var duration = (target > .5 ? .32 : .35) * (.45 + .55 * Math.Sqrt(Math.Abs(distance)));
+        var duration = (target > .5 ? .40 : .42) * (.45 + .55 * Math.Sqrt(Math.Abs(distance)));
         var t = Math.Clamp(seconds / duration, 0, 1);
         if (t >= 1) return new(target, 0, true);
         // Clamp the forward tangent so the derivative remains nonnegative.

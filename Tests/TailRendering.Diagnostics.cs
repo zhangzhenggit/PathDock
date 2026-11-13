@@ -12,6 +12,8 @@ public sealed partial class MainWindow
 {
     internal async Task<object> CheckTailRendering()
     {
+        // Retain the lower-tier fallback's independent coverage.
+        islandUnavailable = true;
         var samples = new List<object>();
         bool alphaCorrect = true, noFinalChange = true, cutoutCorrect = true, coordinatesCorrect = true, sourceReleased = true, reversalCorrect = true;
         bool iconOpaque = true, handleMaskStable = true, singleAxisCorrect = true;

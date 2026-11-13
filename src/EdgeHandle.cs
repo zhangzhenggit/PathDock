@@ -14,13 +14,13 @@ internal sealed class EdgeHandle : Border
     public static void ConfigureVisual(Border border)
     {
         border.Child = new Image { Source = AppIcon.Vector, Width = 26, Height = 26, IsHitTestVisible = false };
-        border.BorderBrush = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : Ui.Brush("#86B8D7"); border.BorderThickness = new Thickness(1);
+        border.BorderBrush = Ui.EdgeOutline; border.BorderThickness = new Thickness(1);
         border.Background = Ui.EdgeBackground;
     }
     public static void ApplyDockSide(Border border, string side)
     {
-        border.CornerRadius = side switch { "left" => new(0, 10, 10, 0), "top" => new(0, 0, 10, 10), "bottom" => new(10, 10, 0, 0), _ => new(10, 0, 0, 10) };
-        border.BorderThickness = side switch { "left" => new(0, 1, 1, 1), "top" => new(1, 0, 1, 1), "bottom" => new(1, 1, 1, 0), _ => new(1, 1, 0, 1) };
+        border.CornerRadius = new CornerRadius(14);
+        border.BorderThickness = new Thickness(1);
     }
     public Action? Expand { get; set; }
     protected override AutomationPeer OnCreateAutomationPeer() => new HandlePeer(this);
